@@ -1,3 +1,11 @@
+/**
+ * Codex provider — NOT YET SUPPORTED.
+ *
+ * Codex CLI lacks a stable hook system for context injection.
+ * Hooks exist in beta (--hooks flag) but aren't enabled by default.
+ * This adapter is ready for when Codex hooks stabilize.
+ */
+
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';

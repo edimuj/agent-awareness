@@ -113,9 +113,9 @@ export default {
 
 ## Provider-aware
 
-Plugins know which agent they're running under via `context.provider`. The quota plugin uses this to automatically fetch Claude quota when running in Claude Code, and Codex quota when running in Codex. Same plugin, different data.
+Plugins know which agent they're running under via `context.provider`. The quota plugin uses this to automatically fetch the right quota data for whichever agent is running. Same plugin, different data.
 
-Built-in providers: **Claude Code**, **Codex**. Adding your own is ~60 lines — see [Creating a Provider](docs/creating-a-provider.md).
+Built-in provider: **Claude Code**. Adding your own is ~60 lines — see [Creating a Provider](docs/creating-a-provider.md).
 
 ## Background ticker
 
