@@ -1,4 +1,4 @@
-import type { AwarenessPlugin, PluginConfig, Trigger } from '../core/types.ts';
+import type { AwarenessPlugin, GatherContext, PluginConfig, Trigger } from '../core/types.ts';
 
 // WMO weather codes → description
 const WMO: Record<number, string> = {
@@ -34,7 +34,7 @@ export default {
     },
   },
 
-  async gather(trigger: Trigger, config: PluginConfig, prevState) {
+  async gather(trigger: Trigger, config: PluginConfig, prevState, _context: GatherContext) {
     // Resolve location: explicit config > cached geo > fresh geo lookup
     const location = await resolveLocation(config, prevState);
     if (!location) return { text: '', state: prevState ?? {} };

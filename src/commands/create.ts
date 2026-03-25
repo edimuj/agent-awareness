@@ -80,7 +80,7 @@ function generatePluginSource(opts: CreateOptions): string {
     .join('\n');
   const desc = opts.description ?? `TODO: describe what ${opts.name} provides`;
 
-  return `import type { AwarenessPlugin, PluginConfig, Trigger } from 'agent-awareness';
+  return `import type { AwarenessPlugin, GatherContext, PluginConfig, Trigger } from 'agent-awareness';
 
 export default {
   name: '${opts.name}',
@@ -99,10 +99,11 @@ ${triggerDefaults}
   // async onStart() { /* session start: spawn daemons, connect services */ },
   // onStop() { /* session end: graceful shutdown */ },
 
-  gather(trigger: Trigger, config: PluginConfig, prevState) {
+  gather(trigger: Trigger, config: PluginConfig, prevState, context: GatherContext) {
+    // context.provider tells you which agent is running ('claude-code', 'codex', etc.)
     // TODO: gather awareness data and return compact text
     return {
-      text: \`🔌 ${opts.name}: replace this with real output\`,
+      text: \`${opts.name}: replace this with real output\`,
       state: {},
     };
   },

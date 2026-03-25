@@ -29,6 +29,18 @@ export interface PluginConfig {
 }
 
 /**
+ * Runtime context passed to gather() by the provider adapter.
+ * Tells plugins which agent they're running under so they can
+ * adapt behavior (e.g., fetch Claude quota vs Codex quota).
+ */
+export interface GatherContext {
+  /** Provider identifier: 'claude-code', 'codex', 'aider', etc. */
+  provider: string;
+  /** Provider-specific metadata (model, session ID, etc.) */
+  [key: string]: unknown;
+}
+
+/**
  * The awareness plugin interface.
  *
  * Every awareness plugin — built-in, npm, or local — must conform to this shape.
@@ -53,6 +65,7 @@ export interface AwarenessPlugin {
     trigger: Trigger,
     config: PluginConfig,
     prevState: Record<string, unknown> | null,
+    context: GatherContext,
   ): GatherResult | Promise<GatherResult>;
 
   // --- Lifecycle hooks (all optional) ---

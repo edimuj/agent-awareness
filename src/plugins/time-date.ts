@@ -1,4 +1,4 @@
-import type { AwarenessPlugin, PluginConfig, Trigger } from '../core/types.ts';
+import type { AwarenessPlugin, GatherContext, PluginConfig, Trigger } from '../core/types.ts';
 
 export default {
   name: 'time-date',
@@ -16,7 +16,7 @@ export default {
     },
   },
 
-  gather(trigger: Trigger, config: PluginConfig, _prevState) {
+  gather(trigger: Trigger, config: PluginConfig, _prevState, _context: GatherContext) {
     const now = new Date();
     const tz = resolveTimezone(config.timezone as string);
 

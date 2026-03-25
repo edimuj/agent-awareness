@@ -4,11 +4,13 @@ import { Registry } from '../../core/registry.ts';
 import { render } from '../../core/renderer.ts';
 import { loadState, saveState, getPluginState, setPluginState } from '../../core/state.ts';
 import { loadPlugins } from '../../core/loader.ts';
-import type { Trigger } from '../../core/types.ts';
+import type { GatherContext, Trigger } from '../../core/types.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
+
+const CONTEXT: GatherContext = { provider: 'claude-code' };
 
 /** Build a registry with all discovered plugins and loaded config. */
 async function createRegistry(): Promise<Registry> {
@@ -51,7 +53,7 @@ export async function run(event: string): Promise<string> {
   for (const { plugin, trigger } of triggered) {
     const config = registry.getPluginConfig(plugin.name)!;
     const prevState = getPluginState(state, plugin.name);
-    const result = await plugin.gather(trigger as Trigger, config, prevState);
+    const result = await plugin.gather(trigger as Trigger, config, prevState, CONTEXT);
     results.push(result);
     state = setPluginState(state, plugin.name, result.state);
   }

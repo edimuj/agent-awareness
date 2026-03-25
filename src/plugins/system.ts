@@ -1,6 +1,6 @@
 import { freemem, totalmem, loadavg } from 'node:os';
 import { statfs } from 'node:fs/promises';
-import type { AwarenessPlugin, PluginConfig, Trigger } from '../core/types.ts';
+import type { AwarenessPlugin, GatherContext, PluginConfig, Trigger } from '../core/types.ts';
 
 export default {
   name: 'system',
@@ -20,7 +20,7 @@ export default {
     },
   },
 
-  async gather(_trigger: Trigger, config: PluginConfig, _prevState) {
+  async gather(_trigger: Trigger, config: PluginConfig, _prevState, _context: GatherContext) {
     const warn = (config.warn as { diskPct?: number; memoryPct?: number }) ?? {};
     const memFree = freemem();
     const memTotal = totalmem();
