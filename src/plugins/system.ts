@@ -25,7 +25,7 @@ export default {
     const memFree = freemem();
     const memTotal = totalmem();
     const memPct = Math.round((1 - memFree / memTotal) * 100);
-    const memWarn = memPct >= (warn.memoryPct ?? 85) ? ' ⚠️' : '';
+    const memWarn = memPct >= (warn.memoryPct ?? 85) ? ' WARNING' : '';
     const load = loadavg()[0].toFixed(1);
 
     let diskStr = '';
@@ -34,14 +34,14 @@ export default {
       const diskTotal = stats.blocks * stats.bsize;
       const diskFree = stats.bavail * stats.bsize;
       const diskPct = Math.round((1 - diskFree / diskTotal) * 100);
-      const diskWarn = diskPct >= (warn.diskPct ?? 90) ? ' ⚠️' : '';
+      const diskWarn = diskPct >= (warn.diskPct ?? 90) ? ' WARNING' : '';
       diskStr = `Disk: ${diskPct}%${diskWarn}`;
     } catch {
       diskStr = 'Disk: N/A';
     }
 
     return {
-      text: `💻 ${diskStr} | Mem: ${formatBytes(memFree)} free${memWarn} | Load: ${load}`,
+      text: `${diskStr} | Mem: ${formatBytes(memFree)} free${memWarn} | Load: ${load}`,
       state: {},
     };
   },

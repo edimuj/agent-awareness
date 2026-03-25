@@ -1,15 +1,15 @@
 import type { AwarenessPlugin, PluginConfig, Trigger } from '../core/types.ts';
 
-// WMO weather codes → emoji + description
-const WMO: Record<number, [string, string]> = {
-  0: ['☀️', 'clear'], 1: ['🌤', 'mostly clear'], 2: ['⛅', 'partly cloudy'], 3: ['☁️', 'overcast'],
-  45: ['🌫', 'fog'], 48: ['🌫', 'rime fog'],
-  51: ['🌦', 'light drizzle'], 53: ['🌦', 'drizzle'], 55: ['🌧', 'heavy drizzle'],
-  61: ['🌧', 'light rain'], 63: ['🌧', 'rain'], 65: ['🌧', 'heavy rain'],
-  71: ['🌨', 'light snow'], 73: ['🌨', 'snow'], 75: ['🌨', 'heavy snow'],
-  80: ['🌧', 'rain showers'], 81: ['🌧', 'heavy showers'], 82: ['🌧', 'violent showers'],
-  85: ['🌨', 'snow showers'], 86: ['🌨', 'heavy snow showers'],
-  95: ['⛈', 'thunderstorm'], 96: ['⛈', 'thunderstorm + hail'], 99: ['⛈', 'severe thunderstorm'],
+// WMO weather codes → description
+const WMO: Record<number, string> = {
+  0: 'clear', 1: 'mostly clear', 2: 'partly cloudy', 3: 'overcast',
+  45: 'fog', 48: 'rime fog',
+  51: 'light drizzle', 53: 'drizzle', 55: 'heavy drizzle',
+  61: 'light rain', 63: 'rain', 65: 'heavy rain',
+  71: 'light snow', 73: 'snow', 75: 'heavy snow',
+  80: 'rain showers', 81: 'heavy showers', 82: 'violent showers',
+  85: 'snow showers', 86: 'heavy snow showers',
+  95: 'thunderstorm', 96: 'thunderstorm + hail', 99: 'severe thunderstorm',
 };
 
 interface GeoLocation {
@@ -55,7 +55,7 @@ export default {
       const feelsLike = Math.round(current.apparent_temperature);
       const wind = current.wind_speed_10m;
       const code = current.weather_code as number;
-      const [emoji, desc] = WMO[code] ?? ['🌡', 'unknown'];
+      const desc = WMO[code] ?? 'unknown';
 
       const sunset = data.daily?.sunset?.[0]?.slice(11, 16) ?? '';
 
@@ -63,14 +63,14 @@ export default {
       const sunsetStr = sunset ? ` | Sunset: ${sunset}` : '';
 
       return {
-        text: `${emoji} ${city}: ${temp}°C${feelsStr}, ${desc} | Wind: ${wind}km/h${sunsetStr}`,
+        text: `Weather ${city}: ${temp}°C${feelsStr}, ${desc} | Wind: ${wind}km/h${sunsetStr}`,
         state: { temp, code, lat, lon, city, lastFetch: new Date().toISOString() },
       };
     } catch {
       // Stale data fallback
       if (prevState?.temp != null) {
         return {
-          text: `🌡 ${prevState.city ?? city}: ${prevState.temp}°C (cached)`,
+          text: `Weather ${prevState.city ?? city}: ${prevState.temp}°C (cached)`,
           state: prevState as Record<string, unknown>,
         };
       }

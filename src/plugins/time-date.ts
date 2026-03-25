@@ -52,11 +52,11 @@ export default {
       ? config.triggers[trigger] : 'full';
 
     if (mode === 'compact') {
-      return { text: `🕐 ${timeStr} ${tzAbbr} ${dayName}`, state };
+      return { text: `${timeStr} ${tzAbbr} ${dayName}`, state };
     }
 
     return {
-      text: `🕐 ${timeStr} ${tzAbbr} ${dayName} ${dateStr} | Week ${weekNum} | ${hoursLabel}`,
+      text: `${timeStr} ${tzAbbr} ${dayName} ${dateStr} | Week ${weekNum} | ${hoursLabel}`,
       state,
     };
   },

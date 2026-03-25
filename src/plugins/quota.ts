@@ -45,18 +45,18 @@ export default {
     if (!quota) {
       // Fallback: session duration only (no API access)
       return {
-        text: `📊 Session: ${elapsedStr}`,
+        text: `Session: ${elapsedStr}`,
         state: { sessionStart, lastCheck: now.toISOString() },
       };
     }
 
-    const parts = [`📊 Session: ${elapsedStr}`];
+    const parts = [`Session: ${elapsedStr}`];
 
     if (quota.five_hour) {
       const pct = quota.five_hour.utilization;
       const reset = timeUntil(quota.five_hour.resets_at);
       let signal = '';
-      if (pct >= 80) signal = ' ⚠️ CONSERVE';
+      if (pct >= 80) signal = ' CONSERVE';
       else if (pct >= 60) signal = ' — consider delegating';
       parts.push(`5h: ${pct}%${signal} (↻${reset})`);
     }
@@ -64,7 +64,7 @@ export default {
     if (quota.seven_day) {
       const pct = quota.seven_day.utilization;
       let signal = '';
-      if (pct >= 90) signal = ' ⚠️';
+      if (pct >= 90) signal = ' WARNING';
       parts.push(`7d: ${pct}%${signal}`);
     }
 
