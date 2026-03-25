@@ -28,6 +28,14 @@ export default {
     // latitude: 59.33,
     // longitude: 18.07,
     // city: 'Stockholm',
+    showTemp: true,
+    showFeelsLike: true,
+    showCondition: true,
+    showWind: true,
+    showSunset: true,
+    feelsLikeDelta: 3,        // only show "feels like" when diff >= this
+    // Only inject when conditions changed since last injection
+    onlyWhenChanged: false,
     triggers: {
       'session-start': true,
       'change:hour': true,
@@ -37,7 +45,7 @@ export default {
   async gather(trigger: Trigger, config: PluginConfig, prevState, _context: GatherContext) {
     // Resolve location: explicit config > cached geo > fresh geo lookup
     const location = await resolveLocation(config, prevState);
-    if (!location) return { text: '', state: prevState ?? {} };
+    if (!location) return null;
 
     const { lat, lon, city } = location;
 
@@ -56,15 +64,49 @@ export default {
       const wind = current.wind_speed_10m;
       const code = current.weather_code as number;
       const desc = WMO[code] ?? 'unknown';
-
       const sunset = data.daily?.sunset?.[0]?.slice(11, 16) ?? '';
 
-      const feelsStr = Math.abs(feelsLike - temp) >= 3 ? ` (feels ${feelsLike}°)` : '';
-      const sunsetStr = sunset ? ` | Sunset: ${sunset}` : '';
+      // Check if conditions changed (for onlyWhenChanged mode)
+      if (config.onlyWhenChanged === true && prevState?.lastInjectedCode != null) {
+        const sameTemp = prevState.lastInjectedTemp === temp;
+        const sameCode = prevState.lastInjectedCode === code;
+        if (sameTemp && sameCode) {
+          return {
+            text: '',
+            state: { ...buildState(temp, code, lat, lon, city, prevState), lastInjectedTemp: prevState.lastInjectedTemp, lastInjectedCode: prevState.lastInjectedCode },
+          };
+        }
+      }
+
+      // Build output from enabled parts
+      const parts: string[] = [`Weather ${city}:`];
+
+      if (config.showTemp !== false) {
+        const delta = (config.feelsLikeDelta as number) ?? 3;
+        const feelsStr = config.showFeelsLike !== false && Math.abs(feelsLike - temp) >= delta
+          ? ` (feels ${feelsLike}°)` : '';
+        parts.push(`${temp}°C${feelsStr}`);
+      }
+      if (config.showCondition !== false) {
+        parts.push(desc);
+      }
+
+      const extraParts: string[] = [];
+      if (config.showWind !== false) {
+        extraParts.push(`Wind: ${wind}km/h`);
+      }
+      if (config.showSunset !== false && sunset) {
+        extraParts.push(`Sunset: ${sunset}`);
+      }
+
+      let text = parts.join(' ');
+      if (extraParts.length > 0) {
+        text += ` | ${extraParts.join(' | ')}`;
+      }
 
       return {
-        text: `Weather ${city}: ${temp}°C${feelsStr}, ${desc} | Wind: ${wind}km/h${sunsetStr}`,
-        state: { temp, code, lat, lon, city, lastFetch: new Date().toISOString() },
+        text,
+        state: { ...buildState(temp, code, lat, lon, city, prevState), lastInjectedTemp: temp, lastInjectedCode: code },
       };
     } catch {
       // Stale data fallback
@@ -74,10 +116,14 @@ export default {
           state: prevState as Record<string, unknown>,
         };
       }
-      return { text: '', state: { lat, lon, city } };
+      return null;
     }
   },
 } satisfies AwarenessPlugin;
+
+function buildState(temp: number, code: number, lat: number, lon: number, city: string, prevState: Record<string, unknown> | null): Record<string, unknown> {
+  return { temp, code, lat, lon, city, lastFetch: new Date().toISOString() };
+}
 
 /** Resolve location from config, cached state, or IP geolocation. */
 async function resolveLocation(

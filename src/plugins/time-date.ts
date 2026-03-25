@@ -9,7 +9,19 @@ export default {
   defaults: {
     timezone: 'auto',
     locale: 'auto',
+    showTime: true,
+    showTimezone: true,
+    showDay: true,
+    showDate: true,
+    showWeekNumber: true,
+    showBusinessHours: true,
     businessHours: { start: 9, end: 17 },
+    // Labels can be customized per use case
+    labels: {
+      businessHours: 'Business hours',
+      afterHours: 'After hours',
+      weekend: 'Weekend',
+    },
     triggers: {
       'session-start': 'full',
       'change:hour': 'compact',
@@ -19,28 +31,11 @@ export default {
   gather(trigger: Trigger, config: PluginConfig, _prevState, _context: GatherContext) {
     const now = new Date();
     const tz = resolveTimezone(config.timezone as string);
+    const labels = (config.labels as Record<string, string>) ?? {};
 
-    const timeStr = now.toLocaleTimeString('en-GB', {
-      timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
-    });
-    const tzAbbr = getTimezoneAbbr(now, tz);
-    const dayName = now.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' });
-    const dateStr = now.toLocaleDateString('en-GB', {
-      timeZone: tz, day: 'numeric', month: 'short', year: 'numeric',
-    });
     const hour = parseInt(now.toLocaleTimeString('en-GB', {
       timeZone: tz, hour: '2-digit', hour12: false,
     }));
-    const weekNum = getWeekNumber(now);
-
-    // Business hours detection
-    const bh = (config.businessHours as { start: number; end: number }) ?? { start: 9, end: 17 };
-    const localDate = new Date(now.toLocaleString('en-US', { timeZone: tz }));
-    const dayOfWeek = localDate.getDay();
-    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
-    const isBusinessHours = isWeekday && hour >= bh.start && hour < bh.end;
-    const hoursLabel = isBusinessHours ? 'Business hours'
-      : isWeekday ? 'After hours' : 'Weekend';
 
     const state = {
       lastHour: hour,
@@ -51,14 +46,62 @@ export default {
     const mode = typeof config.triggers?.[trigger] === 'string'
       ? config.triggers[trigger] : 'full';
 
-    if (mode === 'compact') {
-      return { text: `${timeStr} ${tzAbbr} ${dayName}`, state };
+    // Build parts based on what's enabled
+    const parts: string[] = [];
+
+    // Time + timezone
+    if (config.showTime !== false) {
+      const timeStr = now.toLocaleTimeString('en-GB', {
+        timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
+      });
+      if (config.showTimezone !== false) {
+        parts.push(`${timeStr} ${getTimezoneAbbr(now, tz)}`);
+      } else {
+        parts.push(timeStr);
+      }
     }
 
-    return {
-      text: `${timeStr} ${tzAbbr} ${dayName} ${dateStr} | Week ${weekNum} | ${hoursLabel}`,
-      state,
-    };
+    // Day name
+    if (config.showDay !== false) {
+      parts.push(now.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short' }));
+    }
+
+    // Compact mode stops here
+    if (mode === 'compact') {
+      return { text: parts.join(' '), state };
+    }
+
+    // Date
+    if (config.showDate !== false) {
+      parts.push(now.toLocaleDateString('en-GB', {
+        timeZone: tz, day: 'numeric', month: 'short', year: 'numeric',
+      }));
+    }
+
+    // Separator between inline parts and pipe-delimited sections
+    const sections: string[] = [parts.join(' ')];
+
+    // Week number
+    if (config.showWeekNumber !== false) {
+      sections.push(`Week ${getWeekNumber(now)}`);
+    }
+
+    // Business hours
+    if (config.showBusinessHours !== false) {
+      const bh = (config.businessHours as { start: number; end: number }) ?? { start: 9, end: 17 };
+      const localDate = new Date(now.toLocaleString('en-US', { timeZone: tz }));
+      const dayOfWeek = localDate.getDay();
+      const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+      const isBusinessHours = isWeekday && hour >= bh.start && hour < bh.end;
+      const hoursLabel = isBusinessHours
+        ? (labels.businessHours ?? 'Business hours')
+        : isWeekday
+          ? (labels.afterHours ?? 'After hours')
+          : (labels.weekend ?? 'Weekend');
+      sections.push(hoursLabel);
+    }
+
+    return { text: sections.join(' | '), state };
   },
 } satisfies AwarenessPlugin;
 
@@ -90,7 +133,6 @@ const TZ_ABBR_MAP: Record<string, { standard: string; daylight: string }> = {
 function getTimezoneAbbr(date: Date, tz: string): string {
   const mapped = TZ_ABBR_MAP[tz];
   if (mapped) {
-    // Check if DST is active by comparing UTC offset in Jan vs now
     const jan = new Date(date.getFullYear(), 0, 1);
     const janOffset = new Date(jan.toLocaleString('en-US', { timeZone: tz })).getTime() - jan.getTime();
     const nowOffset = new Date(date.toLocaleString('en-US', { timeZone: tz })).getTime() - date.getTime();

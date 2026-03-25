@@ -11,6 +11,11 @@ interface Quota {
   weekly: { utilization: number; resetsAt: string } | null;
 }
 
+interface ThresholdSignal {
+  pct: number;
+  message: string;
+}
+
 /** Provider-specific quota fetchers. */
 const FETCHERS: Record<string, () => Promise<Quota | null>> = {
   'claude-code': fetchClaudeQuota,
@@ -21,9 +26,20 @@ export default {
   name: 'quota',
   description: 'Real API quota utilization — adapts to the running provider',
 
-  triggers: ['session-start', 'prompt', 'interval:10m'],
+  triggers: ['session-start', 'interval:10m'],
 
   defaults: {
+    showSession: true,
+    showBurst: true,
+    showWeekly: true,
+    showResetTime: true,
+    burstSignals: [
+      { pct: 80, message: 'CONSERVE' },
+      { pct: 60, message: 'consider delegating' },
+    ] as ThresholdSignal[],
+    weeklySignals: [
+      { pct: 90, message: 'WARNING' },
+    ] as ThresholdSignal[],
     triggers: {
       'session-start': true,
       'interval:10m': true,
@@ -36,38 +52,40 @@ export default {
     const elapsedMs = now.getTime() - new Date(sessionStart).getTime();
     const elapsedMin = Math.round(elapsedMs / 60_000);
 
-    const elapsedStr = elapsedMin < 60
-      ? `${elapsedMin}min`
-      : `${Math.floor(elapsedMin / 60)}h${String(elapsedMin % 60).padStart(2, '0')}min`;
+    const parts: string[] = [];
+
+    // Session duration
+    if (config.showSession !== false) {
+      const elapsedStr = elapsedMin < 60
+        ? `${elapsedMin}min`
+        : `${Math.floor(elapsedMin / 60)}h${String(elapsedMin % 60).padStart(2, '0')}min`;
+      parts.push(`Session: ${elapsedStr}`);
+    }
 
     // Dispatch to provider-specific fetcher
     const fetcher = FETCHERS[context.provider];
     const quota = fetcher ? await fetcher() : null;
 
-    if (!quota) {
-      return {
-        text: `Session: ${elapsedStr}`,
-        state: { sessionStart, lastCheck: now.toISOString() },
-      };
+    if (quota) {
+      // Burst (5h) window
+      if (config.showBurst !== false && quota.burst) {
+        const pct = quota.burst.utilization;
+        const signal = matchSignal(pct, config.burstSignals as ThresholdSignal[] | undefined);
+        const signalStr = signal ? ` ${signal}` : '';
+        const resetStr = config.showResetTime !== false ? ` (↻${timeUntil(quota.burst.resetsAt)})` : '';
+        parts.push(`5h: ${pct}%${signalStr}${resetStr}`);
+      }
+
+      // Weekly (7d) window
+      if (config.showWeekly !== false && quota.weekly) {
+        const pct = quota.weekly.utilization;
+        const signal = matchSignal(pct, config.weeklySignals as ThresholdSignal[] | undefined);
+        const signalStr = signal ? ` ${signal}` : '';
+        parts.push(`7d: ${pct}%${signalStr}`);
+      }
     }
 
-    const parts = [`Session: ${elapsedStr}`];
-
-    if (quota.burst) {
-      const pct = quota.burst.utilization;
-      const reset = timeUntil(quota.burst.resetsAt);
-      let signal = '';
-      if (pct >= 80) signal = ' CONSERVE';
-      else if (pct >= 60) signal = ' — consider delegating';
-      parts.push(`5h: ${pct}%${signal} (↻${reset})`);
-    }
-
-    if (quota.weekly) {
-      const pct = quota.weekly.utilization;
-      let signal = '';
-      if (pct >= 90) signal = ' WARNING';
-      parts.push(`7d: ${pct}%${signal}`);
-    }
+    if (parts.length === 0) return null;
 
     return {
       text: parts.join(' | '),
@@ -75,6 +93,17 @@ export default {
     };
   },
 } satisfies AwarenessPlugin;
+
+/** Match the highest threshold that the percentage exceeds. Signals must be sorted high→low. */
+function matchSignal(pct: number, signals: ThresholdSignal[] | undefined): string | null {
+  if (!signals) return null;
+  // Sort descending so highest threshold matches first
+  const sorted = [...signals].sort((a, b) => b.pct - a.pct);
+  for (const s of sorted) {
+    if (pct >= s.pct) return s.message;
+  }
+  return null;
+}
 
 // --- Claude Code ---
 

@@ -3,7 +3,12 @@
     "time-date": {
       "enabled": true,
       "timezone": "auto",
-      "locale": "auto",
+      "showTime": true,
+      "showTimezone": true,
+      "showDay": true,
+      "showDate": true,
+      "showWeekNumber": true,
+      "showBusinessHours": true,
       "businessHours": { "start": 9, "end": 17 },
       "triggers": {
         "session-start": "full",
@@ -12,8 +17,17 @@
     },
     "quota": {
       "enabled": true,
-      "plan": "claude-max",
-      "windowHours": 5,
+      "showSession": true,
+      "showBurst": true,
+      "showWeekly": true,
+      "showResetTime": true,
+      "burstSignals": [
+        { "pct": 80, "message": "CONSERVE" },
+        { "pct": 60, "message": "consider delegating" }
+      ],
+      "weeklySignals": [
+        { "pct": 90, "message": "WARNING" }
+      ],
       "triggers": {
         "session-start": true,
         "interval:10m": true
@@ -22,17 +36,34 @@
     "system": {
       "enabled": true,
       "diskPath": "/",
+      "showDisk": true,
+      "showMemory": true,
+      "showLoad": true,
+      "onlyWhenWarning": false,
+      "thresholds": {
+        "diskPct": 80,
+        "memoryPct": 80,
+        "loadPerCpu": 2.0
+      },
+      "messages": {
+        "disk": "WARNING",
+        "memory": "WARNING",
+        "load": "HIGH"
+      },
       "triggers": {
         "session-start": true,
         "interval:15m": true
-      },
-      "warn": {
-        "diskPct": 90,
-        "memoryPct": 85
       }
     },
     "weather": {
       "enabled": true,
+      "showTemp": true,
+      "showFeelsLike": true,
+      "showCondition": true,
+      "showWind": true,
+      "showSunset": true,
+      "feelsLikeDelta": 3,
+      "onlyWhenChanged": false,
       "triggers": {
         "session-start": true,
         "change:hour": true
