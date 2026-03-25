@@ -36,6 +36,14 @@ Each plugin exports: `{ name, description, triggers, defaults, gather(trigger, c
 - Persisted at `~/.cache/agent-awareness/state.json`
 - Each plugin gets own namespace, auto-timestamped via `_updatedAt`
 
+## Plugin discovery (loader)
+Three sources, scanned in priority order (later overrides earlier by name):
+1. **Built-in** — `src/plugins/*.ts` (ships with the package)
+2. **npm** — `node_modules/agent-awareness-plugin-*` (auto-discovered)
+3. **Local** — `~/.config/agent-awareness/plugins/` (private plugins, .ts files or dirs with index.ts)
+
+Plugin packs (array default export) are supported — one npm package can provide multiple plugins.
+
 ## Config
 - Defaults: `config/default.json`
 - User overrides: `~/.config/agent-awareness/config.json` (deep merged)

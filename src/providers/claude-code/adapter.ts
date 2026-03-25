@@ -1,18 +1,32 @@
 import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
+import { join } from 'node:path';
 import { Registry } from '../../core/registry.ts';
 import { render } from '../../core/renderer.ts';
 import { loadState, saveState, getPluginState, setPluginState } from '../../core/state.ts';
+import { loadPlugins } from '../../core/loader.ts';
 import type { Trigger } from '../../core/types.ts';
 
-// Awareness plugins
-import timeDate from '../../plugins/time-date.ts';
-import quota from '../../plugins/quota.ts';
-import system from '../../plugins/system.ts';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
+const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
+
+/** Build a registry with all discovered plugins and loaded config. */
+async function createRegistry(): Promise<Registry> {
+  const registry = new Registry();
+  const { plugins, errors } = await loadPlugins();
+
+  for (const plugin of plugins) {
+    registry.register(plugin);
+  }
+
+  // Log discovery errors to stderr — don't crash the pipeline
+  for (const { source, error } of errors) {
+    console.error(`[agent-awareness] ${source}: ${error}`);
+  }
+
+  await registry.loadConfig(DEFAULT_CONFIG);
+  return registry;
+}
 
 /**
  * Run the awareness pipeline for a given event.
@@ -21,13 +35,7 @@ const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
  * On 'session-start', calls onStart() on all enabled plugins before gathering.
  */
 export async function run(event: string): Promise<string> {
-  const registry = new Registry();
-
-  registry.register(timeDate);
-  registry.register(quota);
-  registry.register(system);
-
-  await registry.loadConfig(DEFAULT_CONFIG);
+  const registry = await createRegistry();
 
   // Lifecycle: call onStart for all enabled plugins at session start
   if (event === 'session-start') {
@@ -58,12 +66,6 @@ export async function run(event: string): Promise<string> {
  * Wire this to SessionEnd or process signals as needed.
  */
 export async function stop(): Promise<void> {
-  const registry = new Registry();
-
-  registry.register(timeDate);
-  registry.register(quota);
-  registry.register(system);
-
-  await registry.loadConfig(DEFAULT_CONFIG);
+  const registry = await createRegistry();
   await registry.stopPlugins();
 }
