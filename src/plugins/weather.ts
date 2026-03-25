@@ -12,15 +12,22 @@ const WMO: Record<number, [string, string]> = {
   95: ['⛈', 'thunderstorm'], 96: ['⛈', 'thunderstorm + hail'], 99: ['⛈', 'severe thunderstorm'],
 };
 
+interface GeoLocation {
+  lat: number;
+  lon: number;
+  city: string;
+}
+
 export default {
   name: 'weather',
   description: 'Local weather conditions from Open-Meteo API (no API key needed)',
   triggers: ['session-start', 'change:hour'],
 
   defaults: {
-    latitude: 59.33,   // Stockholm
-    longitude: 18.07,
-    city: 'Stockholm',
+    // When omitted, auto-detected via IP geolocation
+    // latitude: 59.33,
+    // longitude: 18.07,
+    // city: 'Stockholm',
     triggers: {
       'session-start': true,
       'change:hour': true,
@@ -28,9 +35,11 @@ export default {
   },
 
   async gather(trigger: Trigger, config: PluginConfig, prevState) {
-    const lat = (config.latitude as number) ?? 59.33;
-    const lon = (config.longitude as number) ?? 18.07;
-    const city = (config.city as string) ?? 'Stockholm';
+    // Resolve location: explicit config > cached geo > fresh geo lookup
+    const location = await resolveLocation(config, prevState);
+    if (!location) return { text: '', state: prevState ?? {} };
+
+    const { lat, lon, city } = location;
 
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
       + `&current=temperature_2m,weather_code,wind_speed_10m,apparent_temperature`
@@ -55,17 +64,63 @@ export default {
 
       return {
         text: `${emoji} ${city}: ${temp}°C${feelsStr}, ${desc} | Wind: ${wind}km/h${sunsetStr}`,
-        state: { temp, code, lastFetch: new Date().toISOString() },
+        state: { temp, code, lat, lon, city, lastFetch: new Date().toISOString() },
       };
     } catch {
       // Stale data fallback
       if (prevState?.temp != null) {
         return {
-          text: `🌡 ${city}: ${prevState.temp}°C (cached)`,
+          text: `🌡 ${prevState.city ?? city}: ${prevState.temp}°C (cached)`,
           state: prevState as Record<string, unknown>,
         };
       }
-      return { text: '', state: {} };
+      return { text: '', state: { lat, lon, city } };
     }
   },
 } satisfies AwarenessPlugin;
+
+/** Resolve location from config, cached state, or IP geolocation. */
+async function resolveLocation(
+  config: PluginConfig,
+  prevState: Record<string, unknown> | null,
+): Promise<GeoLocation | null> {
+  // 1. Explicit config — user knows best
+  if (config.latitude != null && config.longitude != null) {
+    return {
+      lat: config.latitude as number,
+      lon: config.longitude as number,
+      city: (config.city as string) ?? 'Unknown',
+    };
+  }
+
+  // 2. Cached from previous geo lookup (valid for 24h)
+  if (prevState?.lat != null && prevState?.lon != null) {
+    const lastFetch = prevState.lastFetch as string | undefined;
+    const age = lastFetch ? Date.now() - new Date(lastFetch).getTime() : Infinity;
+    if (age < 24 * 60 * 60_000) {
+      return {
+        lat: prevState.lat as number,
+        lon: prevState.lon as number,
+        city: (prevState.city as string) ?? 'Unknown',
+      };
+    }
+  }
+
+  // 3. Fresh IP geolocation
+  return geolocate();
+}
+
+/** IP-based geolocation via ip-api.com (free, no key, 45 req/min). */
+async function geolocate(): Promise<GeoLocation | null> {
+  try {
+    const res = await fetch('http://ip-api.com/json/?fields=lat,lon,city', {
+      signal: AbortSignal.timeout(3_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.lat || !data.lon) return null;
+    return { lat: data.lat, lon: data.lon, city: data.city ?? 'Unknown' };
+  } catch {
+    return null;
+  }
+}
