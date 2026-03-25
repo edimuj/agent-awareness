@@ -4,9 +4,7 @@ import { homedir } from 'node:os';
 import type { AwarenessPlugin, PluginConfig, PluginState } from './types.ts';
 import { parseInterval } from './types.ts';
 
-const USER_CONFIG_DIR = join(homedir(), '.config', 'agent-awareness');
-const USER_PLUGINS_D = join(USER_CONFIG_DIR, 'plugins.d');
-const USER_LEGACY_CONFIG = join(USER_CONFIG_DIR, 'config.json');
+const USER_PLUGINS_D = join(homedir(), '.config', 'agent-awareness', 'plugins.d');
 
 /**
  * Config resolution order per plugin:
@@ -19,11 +17,6 @@ const USER_LEGACY_CONFIG = join(USER_CONFIG_DIR, 'config.json');
  * System config (non-plugin settings) comes from config.json files only.
  */
 
-interface SystemConfig {
-  plugins?: Record<string, PluginConfig>;
-  [key: string]: unknown;
-}
-
 interface TriggeredPlugin {
   plugin: AwarenessPlugin;
   trigger: string;
@@ -33,7 +26,6 @@ export class Registry {
   #plugins = new Map<string, AwarenessPlugin>();
   #packageDefaults: Record<string, PluginConfig> = {};
   #userPluginConfigs: Record<string, PluginConfig> = {};
-  #legacyConfig: Record<string, PluginConfig> = {};
 
   register(plugin: AwarenessPlugin): void {
     this.#plugins.set(plugin.name, plugin);
@@ -42,17 +34,11 @@ export class Registry {
   async loadConfig(defaultConfigPath: string): Promise<void> {
     // 1. Package defaults (config/default.json)
     try {
-      const defaults: SystemConfig = JSON.parse(await readFile(defaultConfigPath, 'utf8'));
-      this.#packageDefaults = defaults.plugins ?? {};
+      const raw = JSON.parse(await readFile(defaultConfigPath, 'utf8'));
+      this.#packageDefaults = raw.plugins ?? {};
     } catch { /* no defaults file */ }
 
-    // 2. Legacy monolithic config.json (backward compat)
-    try {
-      const legacy: SystemConfig = JSON.parse(await readFile(USER_LEGACY_CONFIG, 'utf8'));
-      this.#legacyConfig = legacy.plugins ?? {};
-    } catch { /* no legacy config */ }
-
-    // 3. Per-plugin config files from user global + rig override
+    // 2. Per-plugin config files from user global + rig override
     this.#userPluginConfigs = await loadPluginConfigs();
   }
 
@@ -60,23 +46,15 @@ export class Registry {
     const plugin = this.#plugins.get(name);
     if (!plugin) return null;
 
-    // Layer: defaults → package → legacy → per-plugin files
     return deepMerge(
-      deepMerge(
-        deepMerge(plugin.defaults, this.#packageDefaults[name] ?? {}),
-        this.#legacyConfig[name] ?? {},
-      ),
+      deepMerge(plugin.defaults, this.#packageDefaults[name] ?? {}),
       this.#userPluginConfigs[name] ?? {},
     ) as PluginConfig;
   }
 
   isEnabled(name: string): boolean {
-    // Check all config layers — per-plugin files win over package defaults
     const perPlugin = this.#userPluginConfigs[name];
     if (perPlugin?.enabled !== undefined) return perPlugin.enabled !== false;
-
-    const legacy = this.#legacyConfig[name];
-    if (legacy?.enabled !== undefined) return legacy.enabled !== false;
 
     const pkgDefault = this.#packageDefaults[name];
     if (pkgDefault?.enabled !== undefined) return pkgDefault.enabled !== false;

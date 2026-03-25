@@ -58,7 +58,6 @@ Per-plugin config files, layered resolution (each layer deep-merges over previou
 2. Package defaults: `config/default.json` → `plugins.<name>`
 3. User global: `~/.config/agent-awareness/plugins.d/<name>.json`
 4. Rig/project: `$AGENT_AWARENESS_CONFIG/plugins.d/<name>.json`
-5. Legacy: `~/.config/agent-awareness/config.json` (backward compat)
 
 Set `AGENT_AWARENESS_CONFIG` env var for rig-specific or project-specific overrides.
 
