@@ -53,8 +53,14 @@ Three sources, scanned in priority order (later overrides earlier by name):
 Plugin packs (array default export) are supported — one npm package can provide multiple plugins.
 
 ## Config
-- Defaults: `config/default.json`
-- User overrides: `~/.config/agent-awareness/config.json` (deep merged)
+Per-plugin config files, layered resolution (each layer deep-merges over previous):
+1. Plugin built-in `defaults` object
+2. Package defaults: `config/default.json` → `plugins.<name>`
+3. User global: `~/.config/agent-awareness/plugins.d/<name>.json`
+4. Rig/project: `$AGENT_AWARENESS_CONFIG/plugins.d/<name>.json`
+5. Legacy: `~/.config/agent-awareness/config.json` (backward compat)
+
+Set `AGENT_AWARENESS_CONFIG` env var for rig-specific or project-specific overrides.
 
 ## CLI
 ```bash
