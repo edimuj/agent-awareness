@@ -1,0 +1,35 @@
+{
+  "plugins": {
+    "time-date": {
+      "enabled": true,
+      "timezone": "auto",
+      "locale": "auto",
+      "businessHours": { "start": 9, "end": 17 },
+      "triggers": {
+        "session-start": "full",
+        "change:hour": "compact"
+      }
+    },
+    "quota": {
+      "enabled": true,
+      "plan": "claude-max",
+      "windowHours": 5,
+      "triggers": {
+        "session-start": true,
+        "interval:10m": true
+      }
+    },
+    "system": {
+      "enabled": true,
+      "diskPath": "/",
+      "triggers": {
+        "session-start": true,
+        "interval:15m": true
+      },
+      "warn": {
+        "diskPct": 90,
+        "memoryPct": 85
+      }
+    }
+  }
+}

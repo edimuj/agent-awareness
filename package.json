@@ -1,0 +1,17 @@
+{
+  "name": "agent-awareness",
+  "version": "0.1.0",
+  "description": "Modular awareness plugins for AI coding agents",
+  "type": "module",
+  "exports": {
+    ".": "./src/core/index.mjs",
+    "./plugins/*": "./src/plugins/*.mjs"
+  },
+  "scripts": {
+    "test": "node --test src/**/*.test.mjs",
+    "session-start": "node hooks/session-start.mjs",
+    "prompt": "node hooks/prompt-submit.mjs"
+  },
+  "keywords": ["ai", "agent", "awareness", "claude-code", "plugin"],
+  "license": "MIT"
+}

@@ -1,0 +1,18 @@
+{
+  "metadata": {
+    "description": "Modular awareness plugins for AI coding agents",
+    "repository": "https://github.com/edimuj/agent-awareness"
+  },
+  "name": "agent-awareness",
+  "owner": {
+    "name": "edimuj",
+    "url": "https://github.com/edimuj"
+  },
+  "plugins": [
+    {
+      "name": "agent-awareness",
+      "source": "./",
+      "description": "Modular awareness plugins that broaden AI agent context with environmental data"
+    }
+  ]
+}
