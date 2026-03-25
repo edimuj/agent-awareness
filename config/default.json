@@ -30,6 +30,16 @@
         "diskPct": 90,
         "memoryPct": 85
       }
+    },
+    "weather": {
+      "enabled": true,
+      "latitude": 59.33,
+      "longitude": 18.07,
+      "city": "Stockholm",
+      "triggers": {
+        "session-start": true,
+        "change:hour": true
+      }
     }
   }
 }

@@ -67,5 +67,6 @@ npx tsc --noEmit                # type-check (no build step — Node runs .ts na
 | Plugin | File | What it provides |
 |--------|------|-----------------|
 | time-date | `src/plugins/time-date.ts` | Time, date, weekday, week number, business hours |
-| quota | `src/plugins/quota.ts` | Session duration, usage window %, conservation signals |
+| quota | `src/plugins/quota.ts` | Real Claude API utilization (5h burst + 7d weekly) |
 | system | `src/plugins/system.ts` | Disk usage, memory, load average, threshold warnings |
+| weather | `src/plugins/weather.ts` | Local weather via Open-Meteo (temp, wind, sunset, no API key) |
