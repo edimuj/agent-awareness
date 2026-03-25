@@ -115,6 +115,8 @@ export default {
 
 Plugins know which agent they're running under via `context.provider`. The quota plugin uses this to automatically fetch Claude quota when running in Claude Code, and Codex quota when running in Codex. Same plugin, different data.
 
+Built-in providers: **Claude Code**, **Codex**. Adding your own is ~60 lines — see [Creating a Provider](docs/creating-a-provider.md).
+
 ## Background ticker
 
 `interval:10m` means every 10 minutes — not "whenever you happen to type after 10 minutes." A background ticker process handles exact timing and caches results for near-zero latency on prompt.
