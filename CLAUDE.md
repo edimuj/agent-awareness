@@ -48,6 +48,13 @@ Plugin packs (array default export) are supported — one npm package can provid
 - Defaults: `config/default.json`
 - User overrides: `~/.config/agent-awareness/config.json` (deep merged)
 
+## CLI
+```bash
+agent-awareness create <name>              # scaffold npm plugin package
+agent-awareness create <name> --local      # scaffold local plugin (~/.config/...)
+agent-awareness list                       # show discovered plugins + status
+```
+
 ## Dev commands
 ```bash
 node hooks/session-start.ts     # test session-start output
