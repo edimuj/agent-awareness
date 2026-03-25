@@ -35,6 +35,14 @@ Each plugin exports: `{ name, description, triggers, defaults, gather(trigger, c
 ## State
 - Persisted at `~/.cache/agent-awareness/state.json`
 - Each plugin gets own namespace, auto-timestamped via `_updatedAt`
+- Ticker cache: `~/.cache/agent-awareness/ticker-cache.json` (interval plugin results)
+- Ticker PID: `~/.cache/agent-awareness/ticker.pid`
+
+## Background ticker
+- Auto-spawned at session start if any plugin uses `interval:*` triggers
+- Runs as a detached process, gathers on schedule, writes to ticker cache
+- Prompt hook reads from cache for interval plugins (near-zero latency)
+- Killed on next session start (clean restart) or via `stop()`
 
 ## Plugin discovery (loader)
 Three sources, scanned in priority order (later overrides earlier by name):
