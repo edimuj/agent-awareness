@@ -1,4 +1,5 @@
-/** @type {import('../core/types.mjs').AwarenessPlugin} */
+import type { AwarenessPlugin, PluginConfig, Trigger } from '../core/types.ts';
+
 export default {
   name: 'quota',
   description: 'Session duration, usage window awareness, conservation signals',
@@ -14,12 +15,13 @@ export default {
     },
   },
 
-  gather(_trigger, config, prevState) {
+  gather(_trigger: Trigger, config: PluginConfig, prevState) {
     const now = new Date();
-    const sessionStart = prevState?.sessionStart ?? now.toISOString();
-    const elapsedMs = now - new Date(sessionStart);
+    const sessionStart = (prevState?.sessionStart as string) ?? now.toISOString();
+    const elapsedMs = now.getTime() - new Date(sessionStart).getTime();
     const elapsedMin = Math.round(elapsedMs / 60_000);
-    const windowMin = (config.windowHours ?? 5) * 60;
+    const windowHours = (config.windowHours as number) ?? 5;
+    const windowMin = windowHours * 60;
     const pct = Math.min(100, Math.round((elapsedMin / windowMin) * 100));
 
     // Conservation signals at thresholds
@@ -32,8 +34,8 @@ export default {
       : `${Math.floor(elapsedMin / 60)}h${String(elapsedMin % 60).padStart(2, '0')}min`;
 
     return {
-      text: `📊 Session: ${elapsedStr} | ~${pct}% of ${config.windowHours}h window${signal}`,
+      text: `📊 Session: ${elapsedStr} | ~${pct}% of ${windowHours}h window${signal}`,
       state: { sessionStart, lastCheck: now.toISOString() },
     };
   },
-};
+} satisfies AwarenessPlugin;

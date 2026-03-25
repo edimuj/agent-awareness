@@ -1,3 +1,5 @@
+import type { GatherResult } from './types.ts';
+
 /**
  * Combines multiple plugin gather results into a single compact block.
  *
@@ -7,7 +9,7 @@
  *   📊 Session: 38min | ~12% of 5h window
  *   💻 Disk: 67% | Mem: 4.2G free | Load: 1.2
  */
-export function render(gatherResults) {
+export function render(gatherResults: GatherResult[]): string {
   const lines = gatherResults
     .map(r => r.text)
     .filter(Boolean);

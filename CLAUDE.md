@@ -3,6 +3,7 @@
 Modular awareness plugins for AI coding agents.
 
 ## Architecture
+- **TypeScript** — Node 24 native strip-types, no build step. `erasableSyntaxOnly` enforced
 - `src/core/` — Plugin engine: registry, renderer, state, types
 - `src/plugins/` — Awareness plugins (one file each, provider-agnostic)
 - `src/providers/claude-code/` — Claude Code provider adapter
@@ -12,7 +13,15 @@ Modular awareness plugins for AI coding agents.
 - `.claude-plugin/plugin.json` — Claude Code plugin manifest
 
 ## Plugin interface
-Each plugin in `src/plugins/` exports: `{ name, description, triggers, defaults, gather(trigger, config, prevState) → { text, state } }`
+Each plugin exports: `{ name, description, triggers, defaults, gather(trigger, config, prevState) → { text, state } }`
+
+### Lifecycle hooks (all optional)
+| Hook | When | Use case |
+|------|------|----------|
+| `onInstall()` | First-time setup | Create dirs, download resources, validate deps |
+| `onUninstall()` | Plugin removal | Remove caches, state files, free resources |
+| `onStart()` | Session begins | Spawn daemons, connect services, warm caches |
+| `onStop()` | Session ends | Graceful shutdown, flush buffers, kill children |
 
 ## Trigger system
 | Trigger | Fires when |
@@ -33,14 +42,15 @@ Each plugin in `src/plugins/` exports: `{ name, description, triggers, defaults,
 
 ## Dev commands
 ```bash
-node hooks/session-start.mjs    # test session-start output
-node hooks/prompt-submit.mjs    # test prompt-submit output
-node --test src/**/*.test.mjs   # run tests
+node hooks/session-start.ts     # test session-start output
+node hooks/prompt-submit.ts     # test prompt-submit output
+node --test src/**/*.test.ts    # run tests
+npx tsc --noEmit                # type-check (no build step — Node runs .ts natively)
 ```
 
 ## Current plugins
 | Plugin | File | What it provides |
 |--------|------|-----------------|
-| time-date | `src/plugins/time-date.mjs` | Time, date, weekday, week number, business hours |
-| quota | `src/plugins/quota.mjs` | Session duration, usage window %, conservation signals |
-| system | `src/plugins/system.mjs` | Disk usage, memory, load average, threshold warnings |
+| time-date | `src/plugins/time-date.ts` | Time, date, weekday, week number, business hours |
+| quota | `src/plugins/quota.ts` | Session duration, usage window %, conservation signals |
+| system | `src/plugins/system.ts` | Disk usage, memory, load average, threshold warnings |

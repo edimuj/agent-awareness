@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "declaration": true,
+    "declarationDir": "./types",
+    "outDir": "./dist",
+    "rootDir": "."
+  },
+  "include": ["src/**/*.ts", "hooks/**/*.ts"]
+}

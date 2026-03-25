@@ -4,14 +4,25 @@
   "description": "Modular awareness plugins for AI coding agents",
   "type": "module",
   "exports": {
-    ".": "./src/core/index.mjs",
-    "./plugins/*": "./src/plugins/*.mjs"
+    ".": "./src/core/index.ts",
+    "./plugins/*": "./src/plugins/*.ts"
   },
   "scripts": {
-    "test": "node --test src/**/*.test.mjs",
-    "session-start": "node hooks/session-start.mjs",
-    "prompt": "node hooks/prompt-submit.mjs"
+    "test": "node --test src/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "session-start": "node hooks/session-start.ts",
+    "prompt": "node hooks/prompt-submit.ts"
   },
-  "keywords": ["ai", "agent", "awareness", "claude-code", "plugin"],
-  "license": "MIT"
+  "keywords": [
+    "ai",
+    "agent",
+    "awareness",
+    "claude-code",
+    "plugin"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "^5.8"
+  }
 }
