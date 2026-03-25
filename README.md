@@ -28,16 +28,20 @@ Four lines. Zero tokens wasted. Your agent now knows more about your world than 
 As a Claude Code plugin:
 
 ```bash
-# From the marketplace (recommended)
-/plugin add marketplace agent-awareness
+# 1. Add the marketplace (one-time)
+/plugin marketplace add edimuj/agent-awareness
 
-# Or from GitHub directly
-claude plugin add github:edimuj/agent-awareness
+# 2. Install the plugin
+/plugin install agent-awareness@edimuj
+```
 
-# Or manually
+Or browse available plugins interactively with `/plugin` → "Discover" tab.
+
+For manual installation from a local clone:
+```bash
 git clone https://github.com/edimuj/agent-awareness.git
 cd agent-awareness && npm install
-/plugin add /path/to/agent-awareness
+/plugin install /path/to/agent-awareness
 ```
 
 ## Build your own plugin
