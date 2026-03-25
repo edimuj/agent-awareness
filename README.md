@@ -28,9 +28,16 @@ Four lines. Zero tokens wasted. Your agent now knows more about your world than 
 As a Claude Code plugin:
 
 ```bash
+# From the marketplace (recommended)
+/plugin add marketplace agent-awareness
+
+# Or from GitHub directly
+claude plugin add github:edimuj/agent-awareness
+
+# Or manually
 git clone https://github.com/edimuj/agent-awareness.git
 cd agent-awareness && npm install
-# Then install via Claude Code plugin settings
+/plugin add /path/to/agent-awareness
 ```
 
 ## Build your own plugin
