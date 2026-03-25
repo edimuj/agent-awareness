@@ -66,7 +66,7 @@ export interface AwarenessPlugin {
     config: PluginConfig,
     prevState: Record<string, unknown> | null,
     context: GatherContext,
-  ): GatherResult | Promise<GatherResult>;
+  ): GatherResult | null | Promise<GatherResult | null>;
 
   // --- Lifecycle hooks (all optional) ---
 

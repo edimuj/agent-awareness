@@ -80,10 +80,12 @@ async function tick(registry: Registry, schedules: Schedule[]): Promise<void> {
 
       const result = await plugin.gather(triggerKey as Trigger, config, prevState, context);
 
-      if (result.text) {
+      if (result?.text) {
         cache[plugin.name] = { text: result.text, gatheredAt: new Date().toISOString() };
       }
-      state = setPluginState(state, plugin.name, result.state);
+      if (result?.state) {
+        state = setPluginState(state, plugin.name, result.state);
+      }
       schedule.lastFired = now;
     } catch (err) {
       process.stderr.write(`[ticker] ${plugin.name} gather failed: ${err}\n`);

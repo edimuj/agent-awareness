@@ -112,6 +112,7 @@ export async function run(event: string): Promise<string> {
     const config = registry.getPluginConfig(plugin.name)!;
     const prevState = getPluginState(state, plugin.name);
     const result = await plugin.gather(trigger as Trigger, config, prevState, CONTEXT);
+    if (!result) continue; // plugin chose not to inject
     results.push(result);
     state = setPluginState(state, plugin.name, result.state);
   }
