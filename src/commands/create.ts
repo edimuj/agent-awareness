@@ -7,6 +7,7 @@ const LOCAL_PLUGIN_DIR = join(homedir(), '.config', 'agent-awareness', 'plugins'
 interface CreateOptions {
   name: string;
   local: boolean;
+  mcp: boolean;
   description?: string;
   triggers: string[];
 }
@@ -80,6 +81,34 @@ function generatePluginSource(opts: CreateOptions): string {
     .join('\n');
   const desc = opts.description ?? `TODO: describe what ${opts.name} provides`;
 
+  const mcpBlock = opts.mcp ? `
+
+  // MCP tools — real-time interaction via MCP server.
+  // Tool names are auto-scoped: "${opts.name}" + "status" → "awareness_${opts.name.replace(/-/g, '_')}_status"
+  // Install the MCP server: agent-awareness mcp install
+  mcp: {
+    tools: [
+      {
+        name: 'status',
+        description: 'Get current ${opts.name} status',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            verbose: { type: 'boolean', description: 'Include detailed info' },
+          },
+        },
+        async handler(params: Record<string, unknown>, config: PluginConfig, signal: AbortSignal) {
+          // TODO: return real-time data
+          return {
+            text: '${opts.name} status: replace with real data',
+            state: {},
+          };
+        },
+      },
+    ],
+  },
+` : '';
+
   return `import type { AwarenessPlugin, GatherContext, PluginConfig, Trigger } from 'agent-awareness';
 
 export default {
@@ -106,7 +135,7 @@ ${triggerDefaults}
       text: \`${opts.name}: replace this with real output\`,
       state: {},
     };
-  },
+  },${mcpBlock}
 } satisfies AwarenessPlugin;
 `;
 }
@@ -114,6 +143,18 @@ ${triggerDefaults}
 function generateReadme(opts: CreateOptions): string {
   const dirName = `agent-awareness-plugin-${opts.name}`;
   const desc = opts.description ?? `Agent awareness plugin: ${opts.name}`;
+
+  const mcpSection = opts.mcp ? `
+## MCP (real-time)
+
+This plugin includes MCP tools for real-time interaction. To enable:
+
+\`\`\`bash
+agent-awareness mcp install   # add MCP server to Claude Code
+\`\`\`
+
+The MCP server auto-discovers plugins with tools. Restart Claude Code after installing.
+` : '';
 
   return `# ${dirName}
 
@@ -129,18 +170,14 @@ Plugins are auto-discovered by agent-awareness — no configuration needed.
 
 ## Configuration
 
-Override defaults in \`~/.config/agent-awareness/config.json\`:
+Override defaults in \`~/.config/agent-awareness/plugins.d/${opts.name}.json\`:
 
 \`\`\`json
 {
-  "plugins": {
-    "${opts.name}": {
-      "enabled": true
-    }
-  }
+  "enabled": true
 }
 \`\`\`
-
+${mcpSection}
 ## License
 
 MIT

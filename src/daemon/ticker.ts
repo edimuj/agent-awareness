@@ -11,6 +11,7 @@
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { Registry } from '../core/registry.ts';
+import { PluginDispatcher } from '../core/dispatcher.ts';
 import { loadPlugins } from '../core/loader.ts';
 import { loadState, saveState, getPluginState, setPluginState, loadTickerCache, saveTickerCache } from '../core/state.ts';
 import { parseInterval } from '../core/types.ts';
@@ -30,6 +31,8 @@ interface Schedule {
   lastFired: number;
 }
 
+const dispatcher = new PluginDispatcher();
+
 async function setup(): Promise<{ registry: Registry; schedules: Schedule[] }> {
   const registry = new Registry();
   const { plugins } = await loadPlugins();
@@ -41,6 +44,14 @@ async function setup(): Promise<{ registry: Registry; schedules: Schedule[] }> {
   for (const plugin of registry.getEnabledPlugins()) {
     const config = registry.getPluginConfig(plugin.name);
     const triggers = config?.triggers ?? {};
+
+    // Configure per-plugin dispatcher limits
+    if (config?.timeout || config?.maxQueue) {
+      dispatcher.configure(plugin.name, {
+        timeout: config.timeout as number | undefined,
+        maxQueue: config.maxQueue as number | undefined,
+      });
+    }
 
     for (const trigger of Object.keys(triggers)) {
       if (!triggers[trigger]) continue;
@@ -55,6 +66,8 @@ async function setup(): Promise<{ registry: Registry; schedules: Schedule[] }> {
 }
 
 async function tick(registry: Registry, schedules: Schedule[]): Promise<void> {
+  await registry.refreshConfigIfStale();
+
   const now = Date.now();
   const due = schedules.filter(s => (now - s.lastFired) >= s.intervalMs);
   if (due.length === 0) return;
@@ -62,34 +75,42 @@ async function tick(registry: Registry, schedules: Schedule[]): Promise<void> {
   let state = await loadState();
   const cache = await loadTickerCache();
 
-  for (const schedule of due) {
+  // Build dispatch entries for all due plugins
+  const entries = due.flatMap(schedule => {
     const plugin = registry.getPlugin(schedule.pluginName);
-    if (!plugin) continue;
+    if (!plugin) return [];
 
     const config = registry.getPluginConfig(plugin.name);
-    if (!config) continue;
+    if (!config) return [];
 
-    const prevState = getPluginState(state, plugin.name);
+    const triggerKey = Object.keys(config.triggers ?? {}).find(t => {
+      const ms = parseInterval(t);
+      return ms === schedule.intervalMs;
+    }) ?? 'prompt';
 
-    try {
-      // Find the matching interval trigger string for this schedule
-      const triggerKey = Object.keys(config.triggers ?? {}).find(t => {
-        const ms = parseInterval(t);
-        return ms === schedule.intervalMs;
-      }) ?? 'prompt';
+    return [{
+      pluginName: plugin.name,
+      schedule,
+      executor: (_signal: AbortSignal) => {
+        const prevState = getPluginState(state, plugin.name);
+        return Promise.resolve(plugin.gather(triggerKey as Trigger, config, prevState, context));
+      },
+    }];
+  });
 
-      const result = await plugin.gather(triggerKey as Trigger, config, prevState, context);
+  // Dispatch all due plugins in parallel
+  const results = await dispatcher.dispatchAll(entries);
 
-      if (result?.text) {
-        cache[plugin.name] = { text: result.text, gatheredAt: new Date().toISOString() };
-      }
-      if (result?.state) {
-        state = setPluginState(state, plugin.name, result.state);
-      }
-      schedule.lastFired = now;
-    } catch (err) {
-      process.stderr.write(`[ticker] ${plugin.name} gather failed: ${err}\n`);
+  for (const { pluginName, result } of results) {
+    if (result?.text) {
+      cache[pluginName] = { text: result.text, gatheredAt: new Date().toISOString() };
     }
+    if (result?.state) {
+      state = setPluginState(state, pluginName, result.state);
+    }
+    // Mark schedule as fired
+    const schedule = due.find(s => s.pluginName === pluginName);
+    if (schedule) schedule.lastFired = now;
   }
 
   await saveState(state);

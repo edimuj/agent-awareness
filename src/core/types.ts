@@ -13,12 +13,35 @@ export type Trigger =
   | `change:${string}`
   | `interval:${string}`;
 
-/** Result returned by a plugin's gather function. */
+/** Result returned by a plugin's gather function or MCP tool handler. */
 export interface GatherResult {
   /** Compact rendered output for context injection. */
   text: string;
   /** State to persist for change detection. */
   state?: Record<string, unknown>;
+}
+
+/** JSON Schema definition for an MCP tool's input. */
+export interface McpInputSchema {
+  type: 'object';
+  properties?: Record<string, unknown>;
+  required?: string[];
+}
+
+/** An MCP tool that a plugin exposes for real-time interaction. */
+export interface McpToolDef {
+  /** Tool name (scoped automatically: awareness_<plugin>_<name>). */
+  name: string;
+  /** Tool description shown to the agent. */
+  description: string;
+  /** JSON Schema for the tool's input parameters. */
+  inputSchema: McpInputSchema;
+  /** Handler called when the tool is invoked. */
+  handler(
+    params: Record<string, unknown>,
+    config: PluginConfig,
+    signal: AbortSignal,
+  ): Promise<GatherResult | null>;
 }
 
 /** Plugin configuration — plugin defaults merged with user overrides. */
@@ -78,6 +101,20 @@ export interface AwarenessPlugin {
   onStart?(): Promise<void> | void;
   /** Session end: graceful shutdown, flush buffers, kill child processes. */
   onStop?(): Promise<void> | void;
+
+  /**
+   * Optional MCP integration.
+   *
+   * Plugins that define `mcp.tools` get their tools auto-registered in
+   * the MCP server. Tool calls route through the dispatcher with the
+   * same timeout and queue protection as trigger-based gather() calls.
+   *
+   * Tool names are auto-scoped: a plugin "toddler" with tool "status"
+   * becomes "awareness_toddler_status" in the MCP tool list.
+   */
+  mcp?: {
+    tools: McpToolDef[];
+  };
 }
 
 /** Persisted state — each plugin gets its own namespace. */

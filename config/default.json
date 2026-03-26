@@ -55,6 +55,31 @@
         "interval:15m": true
       }
     },
+    "focus-timer": {
+      "enabled": true,
+      "focusMinutes": 25,
+      "breakMinutes": 5,
+      "longBreakMinutes": 15,
+      "longBreakAfter": 4,
+      "autoBreak": true,
+      "triggers": {
+        "session-start": true,
+        "prompt": true
+      }
+    },
+    "energy-curve": {
+      "enabled": false,
+      "profile": "nine-to-five",
+      "startHour": null,
+      "weekday": null,
+      "weekend": null,
+      "weekendShift": 2,
+      "timezone": "auto",
+      "triggers": {
+        "session-start": true,
+        "change:hour": true
+      }
+    },
     "weather": {
       "enabled": true,
       "showTemp": true,

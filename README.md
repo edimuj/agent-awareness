@@ -22,6 +22,8 @@ Four lines. Zero tokens wasted. Your agent now knows more about your world than 
 | **system** | Disk, memory, load — warns before your box catches fire |
 | **time-date** | Time, date, weekday, week number, business hours |
 | **weather** | Live weather via Open-Meteo — auto-detects your location, no API key |
+| **energy-curve** | Adapts agent style to your energy rhythm — pick a profile or define custom schedules |
+| **focus-timer** | Pomodoro focus timer — agent adapts behavior during focus/break sessions (MCP-enabled) |
 
 ## Install
 
@@ -49,6 +51,9 @@ cd agent-awareness && npm install
 ```bash
 # npm package (for sharing)
 npx agent-awareness create weather-alerts
+
+# With MCP real-time tools
+npx agent-awareness create home-sensors --mcp
 
 # Local plugin (for you)
 npx agent-awareness create my-secret-sauce --local
@@ -122,6 +127,60 @@ export default {
 } satisfies AwarenessPlugin;
 ```
 
+## MCP server (optional)
+
+For plugins that need real-time interaction, agent-awareness includes an MCP server. The agent can query plugin data on demand — not just at prompt time.
+
+```bash
+agent-awareness mcp install    # add to Claude Code config
+agent-awareness mcp uninstall  # remove it
+agent-awareness mcp status     # check configuration
+```
+
+Plugins opt into MCP by defining tools in their `mcp` field. The MCP server auto-discovers them:
+
+```typescript
+export default {
+  name: 'home-sensors',
+  // ... gather(), triggers, etc.
+
+  mcp: {
+    tools: [{
+      name: 'temperature',
+      description: 'Get current temperature from home sensors',
+      inputSchema: { type: 'object', properties: { room: { type: 'string' } } },
+      async handler(params, config, signal) {
+        const temp = await fetchSensor(params.room as string, { signal });
+        return { text: `${params.room}: ${temp}°C` };
+      },
+    }],
+  },
+} satisfies AwarenessPlugin;
+```
+
+Tool names are auto-scoped: `home-sensors` + `temperature` → `awareness_home_sensors_temperature`. All calls go through the same dispatcher with timeout and queue protection — a misbehaving plugin can't hang the MCP server or starve other plugins.
+
+The MCP server is **completely optional**. Plugins work fine without it — `gather()` handles trigger-based context injection as always. MCP adds real-time query capability on top.
+
+## Execution safety
+
+All plugin calls — hook triggers, MCP events, background ticks — route through a unified dispatcher:
+
+- **Per-plugin queue** — bounded (default 3), drops oldest on overflow
+- **Timeout** — 30s default, configurable per-plugin via `timeout` in config
+- **Serial per plugin** — prevents state races within a plugin
+- **Parallel across plugins** — one plugin hanging doesn't block others
+- **Errors never crash** — failures log to stderr and return null (skipped)
+
+Community plugins can't hang your agent or eat unbounded memory. Configure per-plugin:
+
+```json
+{
+  "timeout": 10000,
+  "maxQueue": 5
+}
+```
+
 ## Provider-aware
 
 Plugins know which agent they're running under via `context.provider`. The quota plugin uses this to automatically fetch the right quota data for whichever agent is running. Same plugin, different data.
@@ -148,8 +207,12 @@ gather(trigger, config, prevState, context) {
 
 ```bash
 agent-awareness create <name>          # scaffold npm plugin package
+agent-awareness create <name> --mcp    # scaffold with MCP tool example
 agent-awareness create <name> --local  # scaffold local plugin
 agent-awareness list                   # show discovered plugins + status
+agent-awareness mcp install            # add MCP server to Claude Code
+agent-awareness mcp uninstall          # remove MCP server
+agent-awareness mcp status             # show MCP config status
 ```
 
 ## Requirements

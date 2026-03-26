@@ -26,12 +26,17 @@ export class Registry {
   #plugins = new Map<string, AwarenessPlugin>();
   #packageDefaults: Record<string, PluginConfig> = {};
   #userPluginConfigs: Record<string, PluginConfig> = {};
+  #defaultConfigPath: string | null = null;
+  #lastConfigLoad = 0;
+  #configTtl = 60_000; // reload config every 60s in long-running processes
 
   register(plugin: AwarenessPlugin): void {
     this.#plugins.set(plugin.name, plugin);
   }
 
   async loadConfig(defaultConfigPath: string): Promise<void> {
+    this.#defaultConfigPath = defaultConfigPath;
+
     // 1. Package defaults (config/default.json)
     try {
       const raw = JSON.parse(await readFile(defaultConfigPath, 'utf8'));
@@ -40,6 +45,18 @@ export class Registry {
 
     // 2. Per-plugin config files from user global + rig override
     this.#userPluginConfigs = await loadPluginConfigs();
+    this.#lastConfigLoad = Date.now();
+  }
+
+  /**
+   * Reload config if stale (older than configTtl).
+   * Call this before accessing config in long-running processes (ticker, MCP).
+   * No-op if config was loaded recently or loadConfig() was never called.
+   */
+  async refreshConfigIfStale(): Promise<void> {
+    if (!this.#defaultConfigPath) return;
+    if (Date.now() - this.#lastConfigLoad < this.#configTtl) return;
+    await this.loadConfig(this.#defaultConfigPath);
   }
 
   getPluginConfig(name: string): PluginConfig | null {
