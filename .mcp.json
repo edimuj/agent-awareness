@@ -2,6 +2,7 @@
   "agent-awareness": {
     "type": "stdio",
     "command": "node",
-    "args": ["src/mcp/server.ts"]
+    "args": ["${CLAUDE_PLUGIN_ROOT}/src/mcp/server.ts"]
   }
 }
+/

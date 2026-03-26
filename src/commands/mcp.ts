@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
 const MCP_JSON_PATH = join(PROJECT_ROOT, '.mcp.json');
-const SERVER_SCRIPT = 'src/mcp/server.ts';
+const SERVER_SCRIPT = '${CLAUDE_PLUGIN_ROOT}/src/mcp/server.ts';
 
 const MCP_ENTRY_KEY = 'agent-awareness';
 
