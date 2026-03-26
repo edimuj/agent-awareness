@@ -1,0 +1,7 @@
+{
+  "agent-awareness": {
+    "type": "stdio",
+    "command": "node",
+    "args": ["src/mcp/server.ts"]
+  }
+}
