@@ -4,7 +4,7 @@
   "description": "Modular awareness plugins for AI coding agents",
   "type": "module",
   "bin": {
-    "agent-awareness": "./src/cli.ts"
+    "agent-awareness": "src/cli.ts"
   },
   "types": "./types/core/index.d.ts",
   "exports": {
