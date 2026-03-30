@@ -25,7 +25,7 @@ import {
 import { Registry } from '../core/registry.ts';
 import { PluginDispatcher } from '../core/dispatcher.ts';
 import { loadPlugins } from '../core/loader.ts';
-import { loadState, saveState, setPluginState } from '../core/state.ts';
+import { loadState, saveState, getPluginState, setPluginState } from '../core/state.ts';
 import type { McpToolDef } from '../core/types.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -111,14 +111,15 @@ async function main(): Promise<void> {
 
     await registry.refreshConfigIfStale();
     const config = registry.getPluginConfig(pluginName)!;
+    let state = await loadState();
+    const prevState = getPluginState(state, pluginName);
 
     const result = await dispatcher.dispatch(pluginName, (signal) =>
-      tool.handler(args ?? {}, config, signal),
+      tool.handler(args ?? {}, config, signal, prevState),
     );
 
     // Persist state if returned
     if (result?.state) {
-      let state = await loadState();
       state = setPluginState(state, pluginName, result.state);
       await saveState(state);
     }

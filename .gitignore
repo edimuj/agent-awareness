@@ -1,7 +1,9 @@
 node_modules/
+types/
 .claude-rig
 share/
 .idea/
 .dev/
 CLAUDE.md
 .dev/plugin-ideas.md
+AGENTS.md

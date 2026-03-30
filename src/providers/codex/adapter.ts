@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { Registry } from '../../core/registry.ts';
+import { PluginDispatcher } from '../../core/dispatcher.ts';
 import { render } from '../../core/renderer.ts';
 import {
   loadState, saveState, getPluginState, setPluginState,
@@ -25,6 +26,7 @@ const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
 const TICKER_SCRIPT = join(PROJECT_ROOT, 'src', 'daemon', 'ticker.ts');
 
 const CONTEXT: GatherContext = { provider: 'codex' };
+const dispatcher = new PluginDispatcher();
 
 /** Build a registry with all discovered plugins and loaded config. */
 async function createRegistry(): Promise<Registry> {
@@ -41,6 +43,18 @@ async function createRegistry(): Promise<Registry> {
   }
 
   await registry.loadConfig(DEFAULT_CONFIG);
+
+  // Configure per-plugin dispatcher limits from config
+  for (const plugin of registry.getEnabledPlugins()) {
+    const config = registry.getPluginConfig(plugin.name);
+    if (config?.timeout || config?.maxQueue) {
+      dispatcher.configure(plugin.name, {
+        timeout: config.timeout as number | undefined,
+        maxQueue: config.maxQueue as number | undefined,
+      });
+    }
+  }
+
   return registry;
 }
 
@@ -111,18 +125,26 @@ export async function run(event: string): Promise<string> {
     }
   }
 
+  // Build executor list — skip interval triggers on prompt (ticker handles those)
+  const dispatchEntries = triggered
+    .filter(({ trigger }) => !(event === 'prompt' && parseInterval(trigger)))
+    .map(({ plugin, trigger }) => ({
+      pluginName: plugin.name,
+      executor: (signal: AbortSignal) => {
+        const config = registry.getPluginConfig(plugin.name)!;
+        const prevState = getPluginState(state, plugin.name);
+        return Promise.resolve(plugin.gather(trigger as Trigger, config, prevState, { ...CONTEXT, signal }));
+      },
+    }));
+
+  // Dispatch all plugins in parallel, each with its own timeout and fault isolation
+  const dispatched = await dispatcher.dispatchAll(dispatchEntries);
+
   const results: GatherResult[] = [];
-
-  for (const { plugin, trigger } of triggered) {
-    // Skip interval triggers on prompt — the ticker handles those
-    if (event === 'prompt' && parseInterval(trigger)) continue;
-
-    const config = registry.getPluginConfig(plugin.name)!;
-    const prevState = getPluginState(state, plugin.name);
-    const result = await plugin.gather(trigger as Trigger, config, prevState, CONTEXT);
-    if (!result) continue; // plugin chose not to inject
+  for (const { pluginName, result } of dispatched) {
+    if (!result) continue;
     results.push(result);
-    state = setPluginState(state, plugin.name, result.state);
+    state = setPluginState(state, pluginName, result.state);
   }
 
   await saveState(state);

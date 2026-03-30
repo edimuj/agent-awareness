@@ -129,7 +129,9 @@ ${triggerDefaults}
   // onStop() { /* session end: graceful shutdown */ },
 
   gather(trigger: Trigger, config: PluginConfig, prevState, context: GatherContext) {
-    // context.provider tells you which agent is running ('claude-code', 'codex', etc.)
+    // context.provider — which agent ('claude-code', 'codex', etc.)
+    // context.signal  — AbortSignal for cancellation (check in slow I/O)
+    // context.log     — structured logging ({ warn, error })
     // TODO: gather awareness data and return compact text
     return {
       text: \`${opts.name}: replace this with real output\`,

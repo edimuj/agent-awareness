@@ -1,4 +1,4 @@
-import { readdir, stat, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readdir, stat, writeFile, mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -139,16 +139,12 @@ async function loadNpmPlugins(errors: LoadResult['errors']): Promise<AwarenessPl
   }
 
   for (const pkg of candidates) {
-    const pkgDir = join(NODE_MODULES, pkg);
     const label = `npm:${pkg}`;
 
     try {
-      // Read package.json to find the entry point
-      const pkgJson = JSON.parse(await readFile(join(pkgDir, 'package.json'), 'utf8'));
-      const entryPoint = pkgJson.exports?.['.'] ?? pkgJson.main ?? 'index.ts';
-      const modulePath = join(pkgDir, entryPoint);
-
-      const loaded = await importPlugin(modulePath, label, errors);
+      // Import by package specifier so Node resolves exports/main correctly.
+      // This supports common object-shaped exports maps.
+      const loaded = await importPlugin(pkg, label, errors);
       plugins.push(...loaded);
     } catch (err) {
       errors.push({ source: label, error: `Failed to load: ${(err as Error).message}` });

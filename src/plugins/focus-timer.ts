@@ -99,6 +99,22 @@ function startBreak(timer: TimerState, minutes: number): TimerState {
   };
 }
 
+function startBreakFromState(timer: TimerState, minutes: number): TimerState {
+  const now = new Date();
+  const completed = timer.status === 'focus'
+    ? timer.sessionsCompleted + 1
+    : timer.sessionsCompleted;
+  return {
+    ...timer,
+    status: 'break',
+    startedAt: now.toISOString(),
+    endsAt: new Date(now.getTime() + minutes * 60_000).toISOString(),
+    breakMinutes: minutes,
+    sessionsCompleted: completed,
+    label: null,
+  };
+}
+
 function stopTimer(timer: TimerState): TimerState {
   const completed = timer.status === 'focus' && isExpired(timer.endsAt)
     ? timer.sessionsCompleted + 1
@@ -118,10 +134,10 @@ const toolStart: McpToolDef = {
       label: { type: 'string', description: 'Optional label for the session (e.g., "refactor auth")' },
     },
   },
-  async handler(params, config, _signal) {
+  async handler(params, config, _signal, prevState) {
     const minutes = (params.minutes as number) ?? (config.focusMinutes as number) ?? 25;
     const label = (params.label as string) ?? null;
-    const timer = startFocus(DEFAULT_STATE, minutes, label);
+    const timer = startFocus(getTimer(prevState), minutes, label);
     return {
       text: `Focus started: ${minutes}min${label ? ` [${label}]` : ''}. Deep work mode active.`,
       state: timer as unknown as Record<string, unknown>,
@@ -138,10 +154,9 @@ const toolBreak: McpToolDef = {
       minutes: { type: 'number', description: 'Break duration in minutes (default: from config)' },
     },
   },
-  async handler(params, config, _signal) {
+  async handler(params, config, _signal, prevState) {
     const minutes = (params.minutes as number) ?? (config.breakMinutes as number) ?? 5;
-    // We don't have prevState in MCP handler — build from defaults + increment
-    const timer = startBreak({ ...DEFAULT_STATE }, minutes);
+    const timer = startBreakFromState(getTimer(prevState), minutes);
     return {
       text: `Break started: ${minutes}min. Step away, stretch, hydrate.`,
       state: timer as unknown as Record<string, unknown>,
@@ -153,8 +168,8 @@ const toolStop: McpToolDef = {
   name: 'stop',
   description: 'Stop the current focus session or break. Returns to normal mode.',
   inputSchema: { type: 'object' },
-  async handler(_params, _config, _signal) {
-    const timer = stopTimer(DEFAULT_STATE);
+  async handler(_params, _config, _signal, prevState) {
+    const timer = stopTimer(getTimer(prevState));
     return {
       text: 'Focus timer stopped. Normal mode.',
       state: timer as unknown as Record<string, unknown>,
@@ -171,14 +186,24 @@ const toolExtend: McpToolDef = {
       minutes: { type: 'number', description: 'Additional minutes (default: 10)' },
     },
   },
-  async handler(params, _config, _signal) {
+  async handler(params, _config, _signal, prevState) {
     const extra = (params.minutes as number) ?? 10;
-    // extend from now
+    const timer = getTimer(prevState);
+    if (timer.status !== 'focus') {
+      return {
+        text: 'No active focus session to extend.',
+      };
+    }
+
+    // Extend from existing end time when active; otherwise from now.
     const now = new Date();
-    const endsAt = new Date(now.getTime() + extra * 60_000).toISOString();
+    const base = timer.endsAt && !isExpired(timer.endsAt)
+      ? new Date(timer.endsAt)
+      : now;
+    const endsAt = new Date(base.getTime() + extra * 60_000).toISOString();
     return {
       text: `Focus extended by ${extra}min. Keep going.`,
-      state: { status: 'focus', endsAt } as unknown as Record<string, unknown>,
+      state: { ...timer, status: 'focus', endsAt } as unknown as Record<string, unknown>,
     };
   },
 };
@@ -187,11 +212,12 @@ const toolStatus: McpToolDef = {
   name: 'status',
   description: 'Get current focus timer status — elapsed time, remaining time, sessions completed.',
   inputSchema: { type: 'object' },
-  async handler(_params, _config, _signal) {
-    // Without prevState, return idle. The gather() path has the real state.
-    // This handler is a fallback — the real value is in gather() injection.
+  async handler(_params, _config, _signal, prevState) {
+    const timer = getTimer(prevState);
+    const status = formatTimer(timer);
     return {
-      text: 'Focus timer: idle (use gather output for live status)',
+      text: status || `Focus timer: idle (sessions completed: ${timer.sessionsCompleted})`,
+      state: timer as unknown as Record<string, unknown>,
     };
   },
 };

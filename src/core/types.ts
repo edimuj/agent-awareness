@@ -14,11 +14,11 @@ export type Trigger =
   | `interval:${string}`;
 
 /** Result returned by a plugin's gather function or MCP tool handler. */
-export interface GatherResult {
+export interface GatherResult<TState extends Record<string, unknown> = Record<string, unknown>> {
   /** Compact rendered output for context injection. */
   text: string;
   /** State to persist for change detection. */
-  state?: Record<string, unknown>;
+  state?: TState;
 }
 
 /** JSON Schema definition for an MCP tool's input. */
@@ -41,6 +41,7 @@ export interface McpToolDef {
     params: Record<string, unknown>,
     config: PluginConfig,
     signal: AbortSignal,
+    prevState: Record<string, unknown> | null,
   ): Promise<GatherResult | null>;
 }
 
@@ -59,6 +60,13 @@ export interface PluginConfig {
 export interface GatherContext {
   /** Provider identifier: 'claude-code', 'codex', 'aider', etc. */
   provider: string;
+  /** AbortSignal for cancellation — plugins with slow I/O should check this. */
+  signal?: AbortSignal;
+  /** Structured logging — use instead of console.error for user-visible warnings. */
+  log?: {
+    warn(msg: string): void;
+    error(msg: string): void;
+  };
   /** Provider-specific metadata (model, session ID, etc.) */
   [key: string]: unknown;
 }
@@ -74,7 +82,7 @@ export interface GatherContext {
  * Advanced plugins (daemons, external services) use lifecycle hooks
  * to manage resources that outlive a single gather() call.
  */
-export interface AwarenessPlugin {
+export interface AwarenessPlugin<TState extends Record<string, unknown> = Record<string, unknown>> {
   /** Unique plugin identifier (e.g., 'time-date', 'weather'). */
   name: string;
   /** Human-readable description of what this plugin provides. */
@@ -87,9 +95,9 @@ export interface AwarenessPlugin {
   gather(
     trigger: Trigger,
     config: PluginConfig,
-    prevState: Record<string, unknown> | null,
+    prevState: TState | null,
     context: GatherContext,
-  ): GatherResult | null | Promise<GatherResult | null>;
+  ): GatherResult<TState> | null | Promise<GatherResult<TState> | null>;
 
   // --- Lifecycle hooks (all optional) ---
 
@@ -137,6 +145,8 @@ export function parseInterval(trigger: string): number | null {
   const match = trigger.match(/^interval:(\d+)([smh])$/);
   if (!match) return null;
   const [, n, unit] = match;
+  const value = parseInt(n!, 10);
+  if (value <= 0) return null;
   const multipliers: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000 };
-  return parseInt(n!) * multipliers[unit!]!;
+  return value * multipliers[unit!]!;
 }

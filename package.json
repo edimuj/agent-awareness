@@ -6,11 +6,20 @@
   "bin": {
     "agent-awareness": "./src/cli.ts"
   },
+  "types": "./types/core/index.d.ts",
   "exports": {
-    ".": "./src/core/index.ts",
-    "./plugins/*": "./src/plugins/*.ts"
+    ".": {
+      "types": "./types/core/index.d.ts",
+      "default": "./src/core/index.ts"
+    },
+    "./plugins/*": {
+      "types": "./types/plugins/*.d.ts",
+      "default": "./src/plugins/*.ts"
+    }
   },
   "scripts": {
+    "build:types": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build:types",
     "test": "node --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "session-start": "node hooks/session-start.ts",

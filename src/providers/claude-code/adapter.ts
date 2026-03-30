@@ -122,10 +122,10 @@ export async function run(event: string): Promise<string> {
     .filter(({ trigger }) => !(event === 'prompt' && parseInterval(trigger)))
     .map(({ plugin, trigger }) => ({
       pluginName: plugin.name,
-      executor: (_signal: AbortSignal) => {
+      executor: (signal: AbortSignal) => {
         const config = registry.getPluginConfig(plugin.name)!;
         const prevState = getPluginState(state, plugin.name);
-        return Promise.resolve(plugin.gather(trigger as Trigger, config, prevState, CONTEXT));
+        return Promise.resolve(plugin.gather(trigger as Trigger, config, prevState, { ...CONTEXT, signal }));
       },
     }));
 

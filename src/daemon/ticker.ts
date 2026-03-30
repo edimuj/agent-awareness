@@ -91,9 +91,9 @@ async function tick(registry: Registry, schedules: Schedule[]): Promise<void> {
     return [{
       pluginName: plugin.name,
       schedule,
-      executor: (_signal: AbortSignal) => {
+      executor: (signal: AbortSignal) => {
         const prevState = getPluginState(state, plugin.name);
-        return Promise.resolve(plugin.gather(triggerKey as Trigger, config, prevState, context));
+        return Promise.resolve(plugin.gather(triggerKey as Trigger, config, prevState, { ...context, signal }));
       },
     }];
   });
