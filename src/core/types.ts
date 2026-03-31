@@ -67,6 +67,20 @@ export interface GatherContext {
     warn(msg: string): void;
     error(msg: string): void;
   };
+  /**
+   * Multi-agent event claiming — prevents duplicate action across concurrent sessions.
+   *
+   * Before rendering an "act"-level directive, call `claims.tryClaim(eventKey)`.
+   * If another session holds the claim, downgrade to "notify".
+   *
+   * Only present when the framework wires it (always in production, may be
+   * absent in minimal test setups).
+   */
+  claims?: {
+    tryClaim(eventKey: string, ttlMinutes?: number): Promise<{ claimed: boolean; holder?: string }>;
+    isClaimedByOther(eventKey: string): Promise<boolean>;
+    release(eventKey: string): Promise<void>;
+  };
   /** Provider-specific metadata (model, session ID, etc.) */
   [key: string]: unknown;
 }

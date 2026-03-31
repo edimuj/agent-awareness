@@ -25,8 +25,9 @@ import {
 import { Registry } from '../core/registry.ts';
 import { PluginDispatcher } from '../core/dispatcher.ts';
 import { loadPlugins } from '../core/loader.ts';
-import { loadState, saveState, getPluginState, setPluginState } from '../core/state.ts';
-import type { McpToolDef } from '../core/types.ts';
+import { loadState, getPluginState, setPluginState, withState } from '../core/state.ts';
+import type { McpToolDef, PluginState } from '../core/types.ts';
+import { createClaimContext } from '../core/claims.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
@@ -111,17 +112,18 @@ async function main(): Promise<void> {
 
     await registry.refreshConfigIfStale();
     const config = registry.getPluginConfig(pluginName)!;
-    let state = await loadState();
-    const prevState = getPluginState(state, pluginName);
+    const preState = await loadState();
+    const prevState = getPluginState(preState, pluginName);
 
     const result = await dispatcher.dispatch(pluginName, (signal) =>
       tool.handler(args ?? {}, config, signal, prevState),
     );
 
-    // Persist state if returned
+    // Atomic state update under lock
     if (result?.state) {
-      state = setPluginState(state, pluginName, result.state);
-      await saveState(state);
+      await withState((state: PluginState) =>
+        setPluginState(state, pluginName, result.state),
+      );
     }
 
     return {

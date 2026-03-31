@@ -13,9 +13,10 @@ import { join } from 'node:path';
 import { Registry } from '../core/registry.ts';
 import { PluginDispatcher } from '../core/dispatcher.ts';
 import { loadPlugins } from '../core/loader.ts';
-import { loadState, saveState, getPluginState, setPluginState, loadTickerCache, saveTickerCache } from '../core/state.ts';
+import { loadState, getPluginState, setPluginState, withState, loadTickerCache, saveTickerCache } from '../core/state.ts';
 import { parseInterval } from '../core/types.ts';
-import type { GatherContext, Trigger } from '../core/types.ts';
+import type { GatherContext, PluginState, Trigger } from '../core/types.ts';
+import { createClaimContext } from '../core/claims.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
@@ -72,7 +73,7 @@ async function tick(registry: Registry, schedules: Schedule[]): Promise<void> {
   const due = schedules.filter(s => (now - s.lastFired) >= s.intervalMs);
   if (due.length === 0) return;
 
-  let state = await loadState();
+  const preState = await loadState();
   const cache = await loadTickerCache();
 
   // Build dispatch entries for all due plugins
@@ -92,8 +93,9 @@ async function tick(registry: Registry, schedules: Schedule[]): Promise<void> {
       pluginName: plugin.name,
       schedule,
       executor: (signal: AbortSignal) => {
-        const prevState = getPluginState(state, plugin.name);
-        return Promise.resolve(plugin.gather(triggerKey as Trigger, config, prevState, { ...context, signal }));
+        const prevState = getPluginState(preState, plugin.name);
+        const claims = createClaimContext(plugin.name);
+        return Promise.resolve(plugin.gather(triggerKey as Trigger, config, prevState, { ...context, signal, claims }));
       },
     }];
   });
@@ -105,15 +107,20 @@ async function tick(registry: Registry, schedules: Schedule[]): Promise<void> {
     if (result?.text) {
       cache[pluginName] = { text: result.text, gatheredAt: new Date().toISOString() };
     }
-    if (result?.state) {
-      state = setPluginState(state, pluginName, result.state);
-    }
     // Mark schedule as fired
     const schedule = due.find(s => s.pluginName === pluginName);
     if (schedule) schedule.lastFired = now;
   }
 
-  await saveState(state);
+  // Atomic state update under lock
+  await withState((state: PluginState) => {
+    for (const { pluginName, result } of results) {
+      if (result?.state) {
+        state = setPluginState(state, pluginName, result.state);
+      }
+    }
+    return state;
+  });
   await saveTickerCache(cache);
 }
 

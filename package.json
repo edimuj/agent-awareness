@@ -1,6 +1,6 @@
 {
   "name": "agent-awareness",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Modular awareness plugins for AI coding agents",
   "type": "module",
   "bin": {
@@ -38,6 +38,9 @@
     "typescript": "^5.8"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.28.0"
+    "@modelcontextprotocol/sdk": "^1.28.0",
+    "agent-awareness-plugin-github-watcher": "^0.1.0",
+    "agent-awareness-plugin-pr-pilot": "^0.1.0",
+    "agent-awareness-plugin-server-health": "^0.1.0"
   }
 }

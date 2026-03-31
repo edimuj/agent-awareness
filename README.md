@@ -210,6 +210,55 @@ Community plugins can't hang your agent or eat unbounded memory:
 { "timeout": 10000, "maxQueue": 5 }
 ```
 
+## Multi-agent coordination
+
+When you run multiple agent sessions in parallel (e.g., different rigs via [claude-rig](https://github.com/edimuj/claude-rig)), they all receive the same plugin notifications. Getting notified is fine — but when a plugin says "act" (e.g., "fix the CI failure on this PR"), you don't want three agents racing to push competing fix commits.
+
+agent-awareness solves this at the framework level with two mechanisms:
+
+### State locking
+
+All state reads and writes go through an atomic file lock. The ticker, prompt hooks, and MCP server can run concurrently without corrupting `state.json`.
+
+This is automatic — plugins don't need to do anything.
+
+### Event claiming
+
+Before rendering an "act"-level directive, plugins can _claim_ the event. Only the first session to claim it gets the "act" framing — other sessions see a downgraded "notify" with a note that another session is handling it.
+
+```typescript
+async gather(trigger, config, prevState, context) {
+  const events = detectEvents(prevState);
+
+  for (const event of events) {
+    if (getAutonomy(event.type, config) === 'act' && context.claims) {
+      const { claimed } = await context.claims.tryClaim(event.key);
+      if (!claimed) {
+        // Another session is handling this — downgrade to notify
+        event.autonomy = 'notify';
+        event.note = 'being handled by another session';
+      }
+    }
+  }
+
+  return { text: formatEvents(events), state: newState };
+}
+```
+
+Claims are:
+- **Scoped per plugin** — different plugins can claim the same event key independently
+- **Auto-expiring** — default 30 minutes, configurable per claim
+- **PID-aware** — if the claiming session dies, the claim is automatically released
+- **Pruned at session start** — expired claims are cleaned up automatically
+
+The full `context.claims` API:
+
+| Method | Description |
+|--------|-------------|
+| `tryClaim(eventKey, ttlMinutes?)` | Claim an event. Returns `{ claimed: true }` or `{ claimed: false, holder }` |
+| `isClaimedByOther(eventKey)` | Check without claiming |
+| `release(eventKey)` | Release your claim (e.g., after completing the action) |
+
 ## Background ticker
 
 `interval:10m` means every 10 minutes — not "whenever you happen to type after 10 minutes." A background process handles exact timing and caches results for near-zero latency on prompt.

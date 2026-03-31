@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { PluginState } from './types.ts';
+import { withStateLock } from './lock.ts';
 
 export const STATE_DIR = join(homedir(), '.cache', 'agent-awareness');
 const STATE_FILE = join(STATE_DIR, 'state.json');
@@ -27,6 +28,22 @@ export function getPluginState(state: PluginState, pluginName: string): Record<s
 
 export function setPluginState(state: PluginState, pluginName: string, pluginState: Record<string, unknown> | undefined): PluginState {
   return { ...state, [pluginName]: { ...pluginState, _updatedAt: new Date().toISOString() } };
+}
+
+/**
+ * Atomic read-modify-write for plugin state.
+ *
+ * Acquires a file lock, loads state, calls the transform function,
+ * saves the result, and releases the lock. This prevents race conditions
+ * when multiple processes (ticker, prompt hook, MCP server) access state.
+ */
+export async function withState(fn: (state: PluginState) => Promise<PluginState> | PluginState): Promise<PluginState> {
+  return withStateLock(async () => {
+    const state = await loadState();
+    const updated = await fn(state);
+    await saveState(updated);
+    return updated;
+  });
 }
 
 /** Cached text results from the background ticker, keyed by plugin name. */
