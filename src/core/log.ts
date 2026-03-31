@@ -1,5 +1,5 @@
 import { appendFile, stat, rename, mkdir } from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
+import { openSync, closeSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { STATE_DIR } from './state.ts';
 
@@ -23,7 +23,8 @@ export async function rotateLogIfNeeded(): Promise<void> {
   } catch { /* file doesn't exist yet — nothing to rotate */ }
 }
 
-/** Open a writable file descriptor for the log (for ticker stdio redirect). */
-export function openLogStream(): ReturnType<typeof createWriteStream> {
-  return createWriteStream(LOG_FILE, { flags: 'a' });
+/** Open a file descriptor for the log (for spawn stdio redirect). Caller must closeSync(fd). */
+export function openLogFd(): number {
+  mkdirSync(STATE_DIR, { recursive: true });
+  return openSync(LOG_FILE, 'a');
 }

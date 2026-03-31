@@ -19,7 +19,8 @@ import {
 import { loadPlugins } from '../../core/loader.ts';
 import { parseInterval } from '../../core/types.ts';
 import type { GatherContext, GatherResult, Trigger } from '../../core/types.ts';
-import { openLogStream, rotateLogIfNeeded } from '../../core/log.ts';
+import { closeSync } from 'node:fs';
+import { openLogFd, rotateLogIfNeeded } from '../../core/log.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -84,13 +85,13 @@ async function manageTicker(registry: Registry): Promise<void> {
 
   // Spawn detached ticker — stderr goes to log file
   await rotateLogIfNeeded();
-  const logStream = openLogStream();
+  const logFd = openLogFd();
   const child = spawn('node', [TICKER_SCRIPT, CONTEXT.provider], {
-    stdio: ['ignore', 'ignore', logStream],
+    stdio: ['ignore', 'ignore', logFd],
     detached: true,
   });
   child.unref();
-  logStream.close();
+  closeSync(logFd);
 
   if (child.pid) {
     await writeTickerPid(child.pid);

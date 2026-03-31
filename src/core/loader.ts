@@ -86,7 +86,7 @@ async function loadFromDirectory(
       const info = await stat(fullPath);
       let modulePath: string;
 
-      if (info.isFile() && entry.endsWith('.ts')) {
+      if (info.isFile() && entry.endsWith('.ts') && !entry.endsWith('.test.ts')) {
         modulePath = fullPath;
       } else if (info.isDirectory()) {
         modulePath = join(fullPath, 'index.ts');
