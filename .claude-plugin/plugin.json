@@ -1,9 +1,5 @@
 {
   "name": "agent-awareness",
   "version": "0.4.1",
-  "description": "Modular awareness plugins that broaden AI agent context with environmental data",
-  "skills": [
-    "skills/plugin-guide",
-    "skills/troubleshooting"
-  ]
+  "description": "Modular awareness plugins that broaden AI agent context with environmental data"
 }
