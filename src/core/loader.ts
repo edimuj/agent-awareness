@@ -1,4 +1,5 @@
-import { readdir, stat, writeFile, mkdir } from 'node:fs/promises';
+import { readdir, readFile, stat, writeFile, mkdir } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -17,10 +18,11 @@ export interface LoadResult {
 }
 
 /**
- * Discover and load plugins from all three sources:
+ * Discover and load plugins from all sources (later overrides earlier):
  *   1. Built-in plugins (src/plugins/)
- *   2. npm packages (node_modules/agent-awareness-plugin-*)
- *   3. Local plugins (~/.config/agent-awareness/plugins/)
+ *   2. Global npm packages (npm root -g)
+ *   3. Local npm packages (node_modules/agent-awareness-plugin-*)
+ *   4. Local plugins (~/.config/agent-awareness/plugins/)
  *
  * Invalid plugins are collected in errors, never thrown.
  */
@@ -30,6 +32,7 @@ export async function loadPlugins(): Promise<LoadResult> {
 
   const sources = await Promise.all([
     loadFromDirectory(BUILTIN_DIR, 'builtin', errors),
+    loadGlobalNpmPlugins(errors),
     loadNpmPlugins(errors),
     loadFromDirectory(LOCAL_PLUGIN_DIR, 'local', errors),
   ]);
@@ -152,6 +155,81 @@ async function loadNpmPlugins(errors: LoadResult['errors']): Promise<AwarenessPl
   }
 
   return plugins;
+}
+
+/** Resolve global node_modules path. Cached — runs npm once per process. */
+let _globalRoot: string | null | undefined;
+function getGlobalNodeModules(): string | null {
+  if (_globalRoot !== undefined) return _globalRoot;
+  try {
+    _globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8', timeout: 5000 }).trim();
+  } catch {
+    _globalRoot = null;
+  }
+  return _globalRoot;
+}
+
+/** Scan global node_modules for agent-awareness-plugin-* packages. */
+async function loadGlobalNpmPlugins(errors: LoadResult['errors']): Promise<AwarenessPlugin[]> {
+  const globalRoot = getGlobalNodeModules();
+  if (!globalRoot) return [];
+
+  let entries: string[];
+  try {
+    entries = await readdir(globalRoot);
+  } catch {
+    return [];
+  }
+
+  const candidates: string[] = [];
+  for (const entry of entries) {
+    if (entry.startsWith(NPM_PREFIX)) {
+      candidates.push(entry);
+    } else if (entry.startsWith('@')) {
+      try {
+        const scopedEntries = await readdir(join(globalRoot, entry));
+        for (const scoped of scopedEntries) {
+          if (scoped.startsWith(NPM_PREFIX)) {
+            candidates.push(join(entry, scoped));
+          }
+        }
+      } catch { /* skip unreadable scopes */ }
+    }
+  }
+
+  const plugins: AwarenessPlugin[] = [];
+  for (const pkg of candidates) {
+    const label = `global:${pkg}`;
+    const pkgDir = join(globalRoot, pkg);
+
+    try {
+      const entryPoint = await resolvePackageEntry(pkgDir);
+      const loaded = await importPlugin(entryPoint, label, errors);
+      plugins.push(...loaded);
+    } catch (err) {
+      errors.push({ source: label, error: `Failed to load: ${(err as Error).message}` });
+    }
+  }
+
+  return plugins;
+}
+
+/** Resolve the entry point file from a package directory (reads package.json exports/main). */
+async function resolvePackageEntry(pkgDir: string): Promise<string> {
+  try {
+    const pkg = JSON.parse(await readFile(join(pkgDir, 'package.json'), 'utf8'));
+    const entry = pkg.exports?.['.']?.default ?? pkg.exports?.['.'] ?? pkg.main;
+    if (entry) return join(pkgDir, entry);
+  } catch { /* no package.json or unparseable — try fallbacks */ }
+
+  for (const candidate of ['index.ts', 'index.mjs', 'src/index.ts']) {
+    try {
+      await stat(join(pkgDir, candidate));
+      return join(pkgDir, candidate);
+    } catch { /* try next */ }
+  }
+
+  throw new Error(`No entry point found in ${pkgDir}`);
 }
 
 /** Import a module and extract plugin(s) from default export. Handles single and array exports. */

@@ -12,6 +12,7 @@ import { loadPlugins } from '../../core/loader.ts';
 import { parseInterval } from '../../core/types.ts';
 import type { GatherContext, GatherResult, PluginState, Trigger } from '../../core/types.ts';
 import { createClaimContext, pruneExpiredClaims } from '../../core/claims.ts';
+import { openLogStream, rotateLogIfNeeded, logToFile } from '../../core/log.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -74,12 +75,15 @@ async function manageTicker(registry: Registry): Promise<void> {
 
   if (!hasIntervalPlugins(registry)) return;
 
-  // Spawn detached ticker
+  // Spawn detached ticker — stderr goes to log file
+  await rotateLogIfNeeded();
+  const logStream = openLogStream();
   const child = spawn('node', [TICKER_SCRIPT, CONTEXT.provider], {
-    stdio: 'ignore',
+    stdio: ['ignore', 'ignore', logStream],
     detached: true,
   });
   child.unref();
+  logStream.close();
 
   if (child.pid) {
     await writeTickerPid(child.pid);

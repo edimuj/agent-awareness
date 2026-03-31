@@ -120,11 +120,28 @@ Key details:
 
 ## Plugin sources
 
-Plugins load from three places (later overrides earlier by name):
+Plugins load from four places (later overrides earlier by name):
 
 1. **Built-in** — ships with agent-awareness
-2. **npm** — `npm install agent-awareness-plugin-*` and it just works
-3. **Local** — drop a `.ts` file in `~/.config/agent-awareness/plugins/`
+2. **Global npm** — `npm install -g agent-awareness-plugin-*` (recommended for users)
+3. **Local npm** — `npm install agent-awareness-plugin-*` in the agent-awareness directory
+4. **Local** — drop a `.ts` file in `~/.config/agent-awareness/plugins/`
+
+## Publishing plugins to npm
+
+The scaffold (`agent-awareness create`) sets up everything you need. The key requirement: **npm plugins must ship compiled `.js` files** — Node 24+ blocks TypeScript inside `node_modules/`.
+
+The scaffold generates a `tsconfig.build.json` with `rewriteRelativeImportExtensions` that compiles `.ts` → `.js` correctly, and a `prepublishOnly` script that builds automatically before `npm publish`.
+
+```bash
+cd agent-awareness-plugin-my-plugin
+npm install             # install devDependencies
+npm run build           # compile .ts → .js
+npm install -g .        # test globally before publishing
+npm publish             # ship it
+```
+
+Local plugins (`--local`) don't need a build step — they run raw TypeScript since they're not inside `node_modules/`.
 
 ## Configuration
 
@@ -275,11 +292,22 @@ Built-in: **Claude Code**, **Codex**. Adding your own is ~60 lines.
 agent-awareness create <name>          # scaffold npm plugin
 agent-awareness create <name> --mcp    # scaffold with MCP tools
 agent-awareness create <name> --local  # scaffold local plugin
+agent-awareness doctor                 # diagnose loading, config, logs
 agent-awareness list                   # show plugins + status
 agent-awareness mcp install            # add MCP server
 agent-awareness mcp uninstall          # remove MCP server
 agent-awareness mcp status             # check MCP config
 ```
+
+## Diagnostics
+
+```bash
+agent-awareness doctor    # full health check
+```
+
+**Log file:** `~/.cache/agent-awareness/agent-awareness.log` — captures ticker errors, plugin failures, lock contention. Auto-rotates at 256 KB. The `doctor` command shows the log location and file size.
+
+**MCP tool:** `awareness_doctor` — same diagnostics, available to agents.
 
 ## Requirements
 

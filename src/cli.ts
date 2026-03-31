@@ -2,6 +2,7 @@
 
 import { parseArgs } from 'node:util';
 import { create } from './commands/create.ts';
+import { doctor } from './commands/doctor.ts';
 import { list } from './commands/list.ts';
 import { mcpInstall, mcpUninstall, mcpStatus } from './commands/mcp.ts';
 
@@ -9,6 +10,7 @@ const USAGE = `agent-awareness — modular awareness plugins for AI coding agent
 
 Commands:
   create <name>     Scaffold a new awareness plugin
+  doctor            Diagnose plugin loading, config, and log status
   list              Show all discovered plugins and their status
   mcp install       Add MCP server to Claude Code config
   mcp uninstall     Remove MCP server from Claude Code config
@@ -60,6 +62,10 @@ switch (command) {
       description: values.description,
       triggers: (values.triggers ?? 'session-start,interval:10m').split(',').map(t => t.trim()),
     });
+    break;
+  }
+  case 'doctor': {
+    await doctor();
     break;
   }
   case 'list': {

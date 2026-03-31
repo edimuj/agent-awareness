@@ -8,6 +8,7 @@ export { withStateLock } from './lock.ts';
 export { createClaimContext, pruneExpiredClaims, CLAIMS_DIR } from './claims.ts';
 export type { ClaimContext, ClaimInfo, ClaimResult } from './claims.ts';
 export { loadPlugins } from './loader.ts';
+export { LOG_FILE, logToFile } from './log.ts';
 export { TRIGGERS, parseInterval } from './types.ts';
 export type { AwarenessPlugin, GatherContext, GatherResult, McpInputSchema, McpToolDef, PluginConfig, PluginState, Trigger } from './types.ts';
 export type { LoadResult } from './loader.ts';
