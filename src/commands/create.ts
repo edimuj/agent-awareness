@@ -202,7 +202,7 @@ This plugin includes MCP tools for real-time interaction. To enable:
 \`\`\`bash
 agent-awareness codex setup          # add MCP + optional hooks + smoke test
 agent-awareness codex hooks install --global  # add Codex hooks only (all projects)
-agent-awareness codex hooks install --project # optional project-scoped hooks file
+agent-awareness codex hooks install --project # optional project-scoped hooks file (.codex/hooks.json)
 agent-awareness mcp install         # add MCP server to Claude Code
 agent-awareness codex mcp install   # add MCP server to Codex
 \`\`\`

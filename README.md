@@ -222,7 +222,7 @@ agent-awareness mcp install          # add to Claude Code
 agent-awareness mcp status           # check Claude Code config
 agent-awareness codex setup          # one-command Codex setup (MCP + optional hooks + smoke)
 agent-awareness codex hooks install --global   # install global Codex hooks (~/.codex/hooks.json)
-agent-awareness codex hooks install --project  # install project hooks (./hooks.json)
+agent-awareness codex hooks install --project  # install project hooks (./.codex/hooks.json)
 agent-awareness codex doctor         # diagnose Codex integration health
 agent-awareness codex hooks status --global    # inspect global Codex hooks status
 agent-awareness codex hooks status --project   # inspect project hooks status
@@ -232,7 +232,7 @@ agent-awareness codex mcp status     # inspect Codex MCP status
 Codex integration model:
 - MCP server config is global (`~/.codex/config.toml`) and shared across projects.
 - Hook config defaults to global (`~/.codex/hooks.json`) so all projects benefit.
-- `--project` is available when you want a repo-local hooks file.
+- `--project` is available when you want a repo-local hooks file (`./.codex/hooks.json`).
 
 ## Lifecycle hooks
 
@@ -335,7 +335,7 @@ agent-awareness mcp install            # add MCP server to Claude Code
 agent-awareness mcp uninstall          # remove MCP server from Claude Code
 agent-awareness mcp status             # check Claude Code MCP config
 agent-awareness codex hooks install --global   # add global Codex hooks (~/.codex/hooks.json)
-agent-awareness codex hooks install --project  # add project hooks (./hooks.json)
+agent-awareness codex hooks install --project  # add project hooks (./.codex/hooks.json)
 agent-awareness codex hooks uninstall --global # remove global Codex hooks
 agent-awareness codex hooks uninstall --project # remove project hooks
 agent-awareness codex hooks status --global    # check global hooks config

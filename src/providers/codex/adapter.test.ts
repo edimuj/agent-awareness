@@ -121,11 +121,50 @@ test('codex session-start wires claims context and prunes stale claims', async (
   );
 
   assert.equal(code, 0);
-  assert.match(stdout, /claims:enabled/);
+  const payload = JSON.parse(stdout);
+  assert.deepEqual(payload.hookSpecificOutput?.hookEventName, 'SessionStart');
+  assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /claims:enabled/);
 
   const staleStillExists = await stat(staleClaim).then(
     () => true,
     () => false,
   );
   assert.equal(staleStillExists, false);
+});
+
+test('codex prompt-submit emits valid JSON hook output shape', async () => {
+  const tempHome = await mkdtemp(join(tmpdir(), 'agent-awareness-home-'));
+  const pluginsDir = join(tempHome, '.config', 'agent-awareness', 'plugins');
+  const configsDir = join(tempHome, '.config', 'agent-awareness', 'plugins.d');
+
+  await mkdir(pluginsDir, { recursive: true });
+  await mkdir(configsDir, { recursive: true });
+
+  for (const name of DISABLED_PLUGIN_NAMES) {
+    await writeFile(join(configsDir, `${name}.json`), '{ "enabled": false }\n');
+  }
+
+  await writeFile(
+    join(pluginsDir, 'prompt-check.ts'),
+    `export default {
+  name: 'prompt-check',
+  description: 'ensures prompt hook output',
+  triggers: ['prompt'],
+  defaults: { triggers: { 'prompt': true } },
+  gather() {
+    return { text: 'prompt:enabled', state: {} };
+  },
+};
+`,
+  );
+
+  const { code, stdout } = await runNode(
+    ['hooks/codex-prompt-submit.ts'],
+    { ...process.env, HOME: tempHome },
+  );
+
+  assert.equal(code, 0);
+  const payload = JSON.parse(stdout);
+  assert.deepEqual(payload.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
+  assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /prompt:enabled/);
 });

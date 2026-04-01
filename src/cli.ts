@@ -27,7 +27,7 @@ Commands:
 Options:
   --help, -h        Show this help
   --global          Use global Codex hook config (~/.codex/hooks.json) for codex hooks/setup
-  --project         Use project hook config (./hooks.json) for codex hooks/setup
+  --project         Use project hook config (./.codex/hooks.json) for codex hooks/setup
 
 Create options:
   --local           Create as a local plugin (~/.config/agent-awareness/plugins/)

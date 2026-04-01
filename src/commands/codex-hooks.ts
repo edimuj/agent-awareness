@@ -3,7 +3,7 @@
  *
  * Installs agent-awareness hook entries in either:
  * - Global Codex hooks file: ~/.codex/hooks.json (default)
- * - Project-local hooks file: ./hooks.json (optional)
+ * - Project-local hooks file: ./.codex/hooks.json (optional)
  *
  * Also enables/disables the codex_hooks feature flag via Codex CLI.
  */
@@ -113,7 +113,7 @@ export function resolveHooksJsonPath(
   home: string = homedir(),
 ): string {
   if (scope === 'global') return join(resolveCodexHome(env, home), 'hooks.json');
-  return join(cwd, 'hooks.json');
+  return join(cwd, '.codex', 'hooks.json');
 }
 
 function otherScope(scope: HooksScope): HooksScope {

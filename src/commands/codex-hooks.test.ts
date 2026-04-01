@@ -29,5 +29,5 @@ test('resolveHooksJsonPath returns project hooks.json for project scope', () => 
     { CODEX_HOME: '/tmp/codex-home' },
     '/home/example',
   );
-  assert.equal(resolved, '/work/repo/hooks.json');
+  assert.equal(resolved, '/work/repo/.codex/hooks.json');
 });

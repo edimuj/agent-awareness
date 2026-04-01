@@ -6,4 +6,11 @@ if (!process.stdin.isTTY) {
 }
 
 const output = await run('session-start');
-if (output) process.stdout.write(output);
+if (output) {
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: 'SessionStart',
+      additionalContext: output,
+    },
+  }));
+}
