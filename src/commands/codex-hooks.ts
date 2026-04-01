@@ -6,19 +6,15 @@
  */
 
 import { spawn } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
-const HOOKS_JSON_PATH = join(PROJECT_ROOT, 'hooks.json');
 
 const SESSION_EVENT = 'SessionStart';
 const PROMPT_EVENT = 'UserPromptSubmit';
-
-const SESSION_COMMAND = 'node ./hooks/codex-session-start.ts';
-const PROMPT_COMMAND = 'node ./hooks/codex-prompt-submit.ts';
 
 const SESSION_TIMEOUT_SECONDS = 15;
 const PROMPT_TIMEOUT_SECONDS = 10;
@@ -43,6 +39,11 @@ interface HookRuleConfig {
 
 interface HooksJsonConfig {
   hooks?: unknown;
+}
+
+interface ResolvedHookCommands {
+  session: string;
+  prompt: string;
 }
 
 async function runCodex(args: string[]): Promise<CommandResult> {
@@ -86,8 +87,9 @@ function normalizeHooksConfig(raw: unknown): { hooks: Record<string, HookRuleCon
 }
 
 async function loadHooksConfig(): Promise<{ hooks: Record<string, HookRuleConfig[]> }> {
+  const hooksJsonPath = join(process.cwd(), 'hooks.json');
   try {
-    const parsed = JSON.parse(await readFile(HOOKS_JSON_PATH, 'utf8'));
+    const parsed = JSON.parse(await readFile(hooksJsonPath, 'utf8'));
     return normalizeHooksConfig(parsed);
   } catch {
     return { hooks: {} };
@@ -95,7 +97,8 @@ async function loadHooksConfig(): Promise<{ hooks: Record<string, HookRuleConfig
 }
 
 async function saveHooksConfig(config: { hooks: Record<string, HookRuleConfig[]> }): Promise<void> {
-  await writeFile(HOOKS_JSON_PATH, JSON.stringify(config, null, 2) + '\n', 'utf8');
+  const hooksJsonPath = join(process.cwd(), 'hooks.json');
+  await writeFile(hooksJsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
 }
 
 function ruleHooks(rule: HookRuleConfig): HookCommandConfig[] {
@@ -108,7 +111,10 @@ function ruleHooks(rule: HookRuleConfig): HookCommandConfig[] {
 function isAgentAwarenessCommand(hook: HookCommandConfig): boolean {
   return hook.type === 'command'
     && typeof hook.command === 'string'
-    && (hook.command === SESSION_COMMAND || hook.command === PROMPT_COMMAND);
+    && (
+      hook.command.includes('codex-session-start')
+      || hook.command.includes('codex-prompt-submit')
+    );
 }
 
 function hasCommandForEvent(
@@ -229,7 +235,40 @@ export async function codexHooksFeatureEnabled(): Promise<boolean | null> {
   return /\btrue$/.test(line);
 }
 
+function quotePath(path: string): string {
+  return `"${path.replace(/"/g, '\\"')}"`;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveHookCommands(): Promise<ResolvedHookCommands> {
+  const distSession = join(PROJECT_ROOT, 'dist', 'hooks', 'codex-session-start.js');
+  const distPrompt = join(PROJECT_ROOT, 'dist', 'hooks', 'codex-prompt-submit.js');
+  if (await exists(distSession) && await exists(distPrompt)) {
+    return {
+      session: `node ${quotePath(distSession)}`,
+      prompt: `node ${quotePath(distPrompt)}`,
+    };
+  }
+
+  const srcSession = join(PROJECT_ROOT, 'hooks', 'codex-session-start.ts');
+  const srcPrompt = join(PROJECT_ROOT, 'hooks', 'codex-prompt-submit.ts');
+  return {
+    session: `node ${quotePath(srcSession)}`,
+    prompt: `node ${quotePath(srcPrompt)}`,
+  };
+}
+
 export async function codexHooksInstall(): Promise<void> {
+  const commands = await resolveHookCommands();
+
   let enabled: CommandResult;
   try {
     enabled = await runCodex(['features', 'enable', 'codex_hooks']);
@@ -247,13 +286,14 @@ export async function codexHooksInstall(): Promise<void> {
   }
 
   const config = await loadHooksConfig();
-  upsertEventHook(config.hooks, SESSION_EVENT, SESSION_COMMAND, SESSION_TIMEOUT_SECONDS);
-  upsertEventHook(config.hooks, PROMPT_EVENT, PROMPT_COMMAND, PROMPT_TIMEOUT_SECONDS);
+  upsertEventHook(config.hooks, SESSION_EVENT, commands.session, SESSION_TIMEOUT_SECONDS);
+  upsertEventHook(config.hooks, PROMPT_EVENT, commands.prompt, PROMPT_TIMEOUT_SECONDS);
   await saveHooksConfig(config);
 
-  console.log(`Codex hooks installed: ${HOOKS_JSON_PATH}`);
-  console.log(`  ${SESSION_EVENT}: ${SESSION_COMMAND}`);
-  console.log(`  ${PROMPT_EVENT}: ${PROMPT_COMMAND}`);
+  const hooksJsonPath = join(process.cwd(), 'hooks.json');
+  console.log(`Codex hooks installed: ${hooksJsonPath}`);
+  console.log(`  ${SESSION_EVENT}: ${commands.session}`);
+  console.log(`  ${PROMPT_EVENT}: ${commands.prompt}`);
   console.log('  Restart Codex sessions to pick up hook changes.');
 }
 
@@ -263,9 +303,9 @@ export async function codexHooksUninstall(): Promise<void> {
 
   if (removed > 0) {
     await saveHooksConfig(config);
-    console.log(`Removed ${removed} agent-awareness Codex hook(s) from ${HOOKS_JSON_PATH}`);
+    console.log(`Removed ${removed} agent-awareness Codex hook(s) from ${join(process.cwd(), 'hooks.json')}`);
   } else {
-    console.log(`No agent-awareness Codex hooks found in ${HOOKS_JSON_PATH}`);
+    console.log(`No agent-awareness Codex hooks found in ${join(process.cwd(), 'hooks.json')}`);
   }
 
   const remaining = countRemainingCommands(config.hooks);
@@ -294,6 +334,7 @@ export async function codexHooksUninstall(): Promise<void> {
 }
 
 export async function codexHooksStatus(): Promise<void> {
+  const commands = await resolveHookCommands();
   let featureEnabled: boolean | null;
   try {
     featureEnabled = await codexHooksFeatureEnabled();
@@ -304,14 +345,14 @@ export async function codexHooksStatus(): Promise<void> {
   }
 
   const config = await loadHooksConfig();
-  const sessionInstalled = hasCommandForEvent(config.hooks, SESSION_EVENT, SESSION_COMMAND);
-  const promptInstalled = hasCommandForEvent(config.hooks, PROMPT_EVENT, PROMPT_COMMAND);
+  const sessionInstalled = hasCommandForEvent(config.hooks, SESSION_EVENT, commands.session);
+  const promptInstalled = hasCommandForEvent(config.hooks, PROMPT_EVENT, commands.prompt);
   const hooksInstalled = sessionInstalled && promptInstalled;
 
   const featureLabel = featureEnabled === null ? 'unknown' : (featureEnabled ? 'enabled' : 'disabled');
   console.log(`Codex hooks feature: ${featureLabel}`);
   console.log(`Agent-awareness Codex hooks: ${hooksInstalled ? 'installed' : 'not installed'}`);
-  console.log(`  config: ${HOOKS_JSON_PATH}`);
+  console.log(`  config: ${join(process.cwd(), 'hooks.json')}`);
   if (!hooksInstalled) {
     console.log('  Run "agent-awareness codex hooks install" to set up');
   }

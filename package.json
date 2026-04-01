@@ -1,10 +1,10 @@
 {
   "name": "agent-awareness",
-  "version": "0.4.2",
+  "version": "0.4.5",
   "description": "Modular awareness plugins for AI coding agents",
   "type": "module",
   "bin": {
-    "agent-awareness": "src/cli.ts"
+    "agent-awareness": "dist/cli.js"
   },
   "types": "./types/core/index.d.ts",
   "exports": {
@@ -18,7 +18,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist types",
+    "build": "npm run clean && tsc -p tsconfig.build.json",
     "prepublishOnly": "npm run build",
     "test": "node --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",

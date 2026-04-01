@@ -49,6 +49,11 @@ async function getMcpEntry(key: string): Promise<CommandResult> {
   return runCodex(['mcp', 'get', key]);
 }
 
+function isNpxCachePath(path: string): boolean {
+  return path.includes('/.npm/_npx/')
+    || path.includes('\\npm\\_npx\\');
+}
+
 export async function resolveServerScript(): Promise<string> {
   try {
     await stat(DIST_SERVER_SCRIPT);
@@ -62,6 +67,13 @@ export async function codexMcpInstall(): Promise<void> {
   let current: CommandResult;
   let legacy: CommandResult;
   const serverScript = await resolveServerScript();
+
+  if (isNpxCachePath(serverScript)) {
+    console.error('Codex MCP install is not supported from npx, because npx cache paths are ephemeral.');
+    console.error('Install agent-awareness globally first, then run: agent-awareness codex mcp install');
+    process.exitCode = 1;
+    return;
+  }
 
   try {
     current = await getMcpEntry(MCP_ENTRY_KEY);
