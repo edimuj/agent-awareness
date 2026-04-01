@@ -1,13 +1,17 @@
 /**
  * Codex hooks install/uninstall/status commands.
  *
- * Installs repository-local hooks.json entries for agent-awareness and
- * enables the codex_hooks feature flag via Codex CLI.
+ * Installs agent-awareness hook entries in either:
+ * - Global Codex hooks file: ~/.codex/hooks.json (default)
+ * - Project-local hooks file: ./hooks.json (optional)
+ *
+ * Also enables/disables the codex_hooks feature flag via Codex CLI.
  */
 
 import { spawn } from 'node:child_process';
-import { readFile, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -44,6 +48,13 @@ interface HooksJsonConfig {
 interface ResolvedHookCommands {
   session: string;
   prompt: string;
+}
+
+export type HooksScope = 'global' | 'project';
+
+export interface CodexHooksOptions {
+  scope?: HooksScope;
+  fallbackToProject?: boolean;
 }
 
 async function runCodex(args: string[]): Promise<CommandResult> {
@@ -86,8 +97,30 @@ function normalizeHooksConfig(raw: unknown): { hooks: Record<string, HookRuleCon
   return { hooks };
 }
 
-async function loadHooksConfig(): Promise<{ hooks: Record<string, HookRuleConfig[]> }> {
-  const hooksJsonPath = join(process.cwd(), 'hooks.json');
+export function resolveCodexHome(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+): string {
+  const configured = env.CODEX_HOME?.trim();
+  if (configured) return configured;
+  return join(home, '.codex');
+}
+
+export function resolveHooksJsonPath(
+  scope: HooksScope,
+  cwd: string = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+): string {
+  if (scope === 'global') return join(resolveCodexHome(env, home), 'hooks.json');
+  return join(cwd, 'hooks.json');
+}
+
+function otherScope(scope: HooksScope): HooksScope {
+  return scope === 'global' ? 'project' : 'global';
+}
+
+async function loadHooksConfig(hooksJsonPath: string): Promise<{ hooks: Record<string, HookRuleConfig[]> }> {
   try {
     const parsed = JSON.parse(await readFile(hooksJsonPath, 'utf8'));
     return normalizeHooksConfig(parsed);
@@ -96,8 +129,11 @@ async function loadHooksConfig(): Promise<{ hooks: Record<string, HookRuleConfig
   }
 }
 
-async function saveHooksConfig(config: { hooks: Record<string, HookRuleConfig[]> }): Promise<void> {
-  const hooksJsonPath = join(process.cwd(), 'hooks.json');
+async function saveHooksConfig(
+  hooksJsonPath: string,
+  config: { hooks: Record<string, HookRuleConfig[]> },
+): Promise<void> {
+  await mkdir(dirname(hooksJsonPath), { recursive: true });
   await writeFile(hooksJsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
 }
 
@@ -266,7 +302,15 @@ async function resolveHookCommands(): Promise<ResolvedHookCommands> {
   };
 }
 
-export async function codexHooksInstall(): Promise<void> {
+function printInstallSuccess(hooksJsonPath: string, commands: ResolvedHookCommands, scope: HooksScope): void {
+  console.log(`Codex hooks installed (${scope}): ${hooksJsonPath}`);
+  console.log(`  ${SESSION_EVENT}: ${commands.session}`);
+  console.log(`  ${PROMPT_EVENT}: ${commands.prompt}`);
+  console.log('  Restart Codex sessions to pick up hook changes.');
+}
+
+export async function codexHooksInstall(options: CodexHooksOptions = {}): Promise<void> {
+  const preferredScope = options.scope ?? 'global';
   const commands = await resolveHookCommands();
 
   let enabled: CommandResult;
@@ -285,30 +329,58 @@ export async function codexHooksInstall(): Promise<void> {
     return;
   }
 
-  const config = await loadHooksConfig();
-  upsertEventHook(config.hooks, SESSION_EVENT, commands.session, SESSION_TIMEOUT_SECONDS);
-  upsertEventHook(config.hooks, PROMPT_EVENT, commands.prompt, PROMPT_TIMEOUT_SECONDS);
-  await saveHooksConfig(config);
+  const preferredPath = resolveHooksJsonPath(preferredScope);
+  try {
+    const config = await loadHooksConfig(preferredPath);
+    upsertEventHook(config.hooks, SESSION_EVENT, commands.session, SESSION_TIMEOUT_SECONDS);
+    upsertEventHook(config.hooks, PROMPT_EVENT, commands.prompt, PROMPT_TIMEOUT_SECONDS);
+    await saveHooksConfig(preferredPath, config);
+    printInstallSuccess(preferredPath, commands, preferredScope);
+    return;
+  } catch (err) {
+    if (!(preferredScope === 'global' && options.fallbackToProject)) {
+      console.error(`Failed to write Codex hooks config at ${preferredPath}: ${(err as Error).message}`);
+      process.exitCode = 1;
+      return;
+    }
+  }
 
-  const hooksJsonPath = join(process.cwd(), 'hooks.json');
-  console.log(`Codex hooks installed: ${hooksJsonPath}`);
-  console.log(`  ${SESSION_EVENT}: ${commands.session}`);
-  console.log(`  ${PROMPT_EVENT}: ${commands.prompt}`);
-  console.log('  Restart Codex sessions to pick up hook changes.');
+  const fallbackScope: HooksScope = 'project';
+  const fallbackPath = resolveHooksJsonPath(fallbackScope);
+  console.warn(`Warning: could not write global Codex hooks config at ${preferredPath}.`);
+  console.warn(`Falling back to project hooks config: ${fallbackPath}`);
+  try {
+    const config = await loadHooksConfig(fallbackPath);
+    upsertEventHook(config.hooks, SESSION_EVENT, commands.session, SESSION_TIMEOUT_SECONDS);
+    upsertEventHook(config.hooks, PROMPT_EVENT, commands.prompt, PROMPT_TIMEOUT_SECONDS);
+    await saveHooksConfig(fallbackPath, config);
+    printInstallSuccess(fallbackPath, commands, fallbackScope);
+  } catch (err) {
+    console.error(`Failed to write fallback project hooks config at ${fallbackPath}: ${(err as Error).message}`);
+    process.exitCode = 1;
+  }
 }
 
-export async function codexHooksUninstall(): Promise<void> {
-  let config = await loadHooksConfig();
+export async function codexHooksUninstall(options: CodexHooksOptions = {}): Promise<void> {
+  const scope = options.scope ?? 'global';
+  const hooksJsonPath = resolveHooksJsonPath(scope);
+  let config = await loadHooksConfig(hooksJsonPath);
   const removed = removeAgentAwarenessHooks(config.hooks);
 
   if (removed > 0) {
-    await saveHooksConfig(config);
-    console.log(`Removed ${removed} agent-awareness Codex hook(s) from ${join(process.cwd(), 'hooks.json')}`);
+    await saveHooksConfig(hooksJsonPath, config);
+    console.log(`Removed ${removed} agent-awareness Codex hook(s) from ${hooksJsonPath}`);
   } else {
-    console.log(`No agent-awareness Codex hooks found in ${join(process.cwd(), 'hooks.json')}`);
+    console.log(`No agent-awareness Codex hooks found in ${hooksJsonPath}`);
   }
 
-  const remaining = countRemainingCommands(config.hooks);
+  let remaining = countRemainingCommands(config.hooks);
+  if (remaining === 0) {
+    const secondaryPath = resolveHooksJsonPath(otherScope(scope));
+    const secondaryConfig = await loadHooksConfig(secondaryPath);
+    remaining = countRemainingCommands(secondaryConfig.hooks);
+  }
+
   if (remaining > 0) {
     console.log(`Codex hooks feature left enabled (${remaining} other hook command(s) still configured).`);
     return;
@@ -333,7 +405,8 @@ export async function codexHooksUninstall(): Promise<void> {
   console.log('Codex hooks feature disabled (no hook commands remain).');
 }
 
-export async function codexHooksStatus(): Promise<void> {
+export async function codexHooksStatus(options: CodexHooksOptions = {}): Promise<void> {
+  const scope = options.scope ?? 'global';
   const commands = await resolveHookCommands();
   let featureEnabled: boolean | null;
   try {
@@ -344,16 +417,21 @@ export async function codexHooksStatus(): Promise<void> {
     return;
   }
 
-  const config = await loadHooksConfig();
+  const hooksJsonPath = resolveHooksJsonPath(scope);
+  const config = await loadHooksConfig(hooksJsonPath);
   const sessionInstalled = hasCommandForEvent(config.hooks, SESSION_EVENT, commands.session);
   const promptInstalled = hasCommandForEvent(config.hooks, PROMPT_EVENT, commands.prompt);
   const hooksInstalled = sessionInstalled && promptInstalled;
 
   const featureLabel = featureEnabled === null ? 'unknown' : (featureEnabled ? 'enabled' : 'disabled');
   console.log(`Codex hooks feature: ${featureLabel}`);
-  console.log(`Agent-awareness Codex hooks: ${hooksInstalled ? 'installed' : 'not installed'}`);
-  console.log(`  config: ${join(process.cwd(), 'hooks.json')}`);
+  console.log(`Agent-awareness Codex hooks (${scope}): ${hooksInstalled ? 'installed' : 'not installed'}`);
+  console.log(`  config: ${hooksJsonPath}`);
   if (!hooksInstalled) {
-    console.log('  Run "agent-awareness codex hooks install" to set up');
+    if (scope === 'global') {
+      console.log('  Run "agent-awareness codex hooks install --global" to set up');
+    } else {
+      console.log('  Run "agent-awareness codex hooks install --project" to set up');
+    }
   }
 }

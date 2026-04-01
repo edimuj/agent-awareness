@@ -22,10 +22,12 @@ Commands:
   codex setup       One-command Codex setup (MCP + optional hooks + smoke test)
   codex doctor      Diagnose Codex integration health
   codex mcp ...     Manage Codex MCP server (install|uninstall|status)
-  codex hooks ...   Manage Codex hooks (install|uninstall|status)
+  codex hooks ...   Manage Codex hooks (install|uninstall|status) [--global|--project]
 
 Options:
   --help, -h        Show this help
+  --global          Use global Codex hook config (~/.codex/hooks.json) for codex hooks/setup
+  --project         Use project hook config (./hooks.json) for codex hooks/setup
 
 Create options:
   --local           Create as a local plugin (~/.config/agent-awareness/plugins/)
@@ -40,6 +42,8 @@ const { positionals, values } = parseArgs({
     help: { type: 'boolean', short: 'h', default: false },
     local: { type: 'boolean', default: false },
     mcp: { type: 'boolean', default: false },
+    global: { type: 'boolean', default: false },
+    project: { type: 'boolean', default: false },
     description: { type: 'string' },
     triggers: { type: 'string', default: 'session-start,interval:10m' },
   },
@@ -104,9 +108,18 @@ switch (command) {
     break;
   }
   case 'codex': {
+    if (values.global && values.project) {
+      console.error('Error: --global and --project are mutually exclusive');
+      process.exit(2);
+    }
+
+    const hookScope = values.project ? 'project' : 'global';
     const sub = positionals[1];
     if (sub === 'setup') {
-      await codexSetup();
+      await codexSetup({
+        hooksScope: hookScope,
+        hooksFallbackToProject: !values.project,
+      });
       break;
     }
     if (sub === 'doctor') {
@@ -138,16 +151,19 @@ switch (command) {
 
     switch (action) {
       case 'install':
-        await codexHooksInstall();
+        await codexHooksInstall({
+          scope: hookScope,
+          fallbackToProject: !values.project,
+        });
         break;
       case 'uninstall':
-        await codexHooksUninstall();
+        await codexHooksUninstall({ scope: hookScope });
         break;
       case 'status':
-        await codexHooksStatus();
+        await codexHooksStatus({ scope: hookScope });
         break;
       default:
-        console.error(`Unknown codex hooks subcommand: ${action ?? '(none)'}\nUsage: agent-awareness codex hooks [install|uninstall|status]`);
+        console.error(`Unknown codex hooks subcommand: ${action ?? '(none)'}\nUsage: agent-awareness codex hooks [install|uninstall|status] [--global|--project]`);
         process.exit(2);
     }
     break;

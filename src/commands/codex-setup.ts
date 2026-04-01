@@ -1,4 +1,4 @@
-import { codexHooksFeatureAvailable, codexHooksInstall } from './codex-hooks.ts';
+import { codexHooksFeatureAvailable, codexHooksInstall, type HooksScope } from './codex-hooks.ts';
 import { codexMcpInstall, resolveServerScript } from './codex-mcp.ts';
 import {
   getInstalledCodexMcpEntry,
@@ -6,7 +6,12 @@ import {
   smokeCodexMcpTools,
 } from './codex-common.ts';
 
-export async function codexSetup(): Promise<void> {
+interface CodexSetupOptions {
+  hooksScope?: HooksScope;
+  hooksFallbackToProject?: boolean;
+}
+
+export async function codexSetup(options: CodexSetupOptions = {}): Promise<void> {
   // 1. MCP installation (required)
   process.exitCode = undefined;
   await codexMcpInstall();
@@ -16,7 +21,10 @@ export async function codexSetup(): Promise<void> {
   const hooksAvailable = await codexHooksFeatureAvailable();
   if (hooksAvailable === true) {
     process.exitCode = undefined;
-    await codexHooksInstall();
+    await codexHooksInstall({
+      scope: options.hooksScope ?? 'global',
+      fallbackToProject: options.hooksFallbackToProject ?? true,
+    });
     if (process.exitCode && process.exitCode !== 0) return;
   } else if (hooksAvailable === false) {
     console.log('Codex hooks feature not available in this Codex build — skipping hooks install.');

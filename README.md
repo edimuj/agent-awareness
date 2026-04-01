@@ -65,8 +65,9 @@ cd agent-awareness && npm install
 /plugin install /path/to/agent-awareness
 ```
 
-For Codex CLI in this repo:
+For Codex CLI:
 ```bash
+npm install -g agent-awareness
 agent-awareness codex setup           # MCP + optional hooks + smoke test
 ```
 
@@ -79,10 +80,13 @@ npm install -g agent-awareness-plugin-energy-curve
 npm install -g agent-awareness-plugin-focus-timer
 ```
 
-2-minute Codex setup from anywhere:
+Quick Codex setup from anywhere:
 ```bash
-npx agent-awareness@latest codex setup
+npm install -g agent-awareness
+agent-awareness codex setup
 ```
+
+Why not `npx` for setup? MCP entries must point to a stable script path; `npx` installs to an ephemeral cache path, so `agent-awareness codex mcp install` intentionally blocks that flow.
 
 Codex plugin manifest files are included:
 - `.codex-plugin/plugin.json`
@@ -222,10 +226,18 @@ The MCP server is optional — plugins work fine without it.
 agent-awareness mcp install          # add to Claude Code
 agent-awareness mcp status           # check Claude Code config
 agent-awareness codex setup          # one-command Codex setup (MCP + optional hooks + smoke)
+agent-awareness codex hooks install --global   # install global Codex hooks (~/.codex/hooks.json)
+agent-awareness codex hooks install --project  # install project hooks (./hooks.json)
 agent-awareness codex doctor         # diagnose Codex integration health
-agent-awareness codex hooks status   # inspect Codex hooks status
+agent-awareness codex hooks status --global    # inspect global Codex hooks status
+agent-awareness codex hooks status --project   # inspect project hooks status
 agent-awareness codex mcp status     # inspect Codex MCP status
 ```
+
+Codex integration model:
+- MCP server config is global (`~/.codex/config.toml`) and shared across projects.
+- Hook config defaults to global (`~/.codex/hooks.json`) so all projects benefit.
+- `--project` is available when you want a repo-local hooks file.
 
 ## Lifecycle hooks
 
@@ -327,9 +339,12 @@ agent-awareness list                   # show plugins + status
 agent-awareness mcp install            # add MCP server to Claude Code
 agent-awareness mcp uninstall          # remove MCP server from Claude Code
 agent-awareness mcp status             # check Claude Code MCP config
-agent-awareness codex hooks install    # add Codex hooks (SessionStart/UserPromptSubmit)
-agent-awareness codex hooks uninstall  # remove Codex hooks
-agent-awareness codex hooks status     # check Codex hooks config
+agent-awareness codex hooks install --global   # add global Codex hooks (~/.codex/hooks.json)
+agent-awareness codex hooks install --project  # add project hooks (./hooks.json)
+agent-awareness codex hooks uninstall --global # remove global Codex hooks
+agent-awareness codex hooks uninstall --project # remove project hooks
+agent-awareness codex hooks status --global    # check global hooks config
+agent-awareness codex hooks status --project   # check project hooks config
 agent-awareness codex mcp install      # add MCP server to Codex
 agent-awareness codex mcp uninstall    # remove MCP server from Codex
 agent-awareness codex mcp status       # check Codex MCP config

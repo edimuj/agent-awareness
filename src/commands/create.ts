@@ -131,7 +131,7 @@ function generatePluginSource(opts: CreateOptions): string {
   // MCP tools — real-time interaction via MCP server.
   // Tool names are auto-scoped: "${opts.name}" + "status" → "awareness_${opts.name.replace(/-/g, '_')}_status"
   // One-command Codex setup:            agent-awareness codex setup
-  // Install hooks in Codex only:        agent-awareness codex hooks install
+  // Install hooks in Codex only:        agent-awareness codex hooks install --global
   // Install MCP server in Claude Code: agent-awareness mcp install
   // Install MCP server in Codex only:   agent-awareness codex mcp install
   mcp: {
@@ -201,7 +201,8 @@ This plugin includes MCP tools for real-time interaction. To enable:
 
 \`\`\`bash
 agent-awareness codex setup          # add MCP + optional hooks + smoke test
-agent-awareness codex hooks install  # add Codex hooks only
+agent-awareness codex hooks install --global  # add Codex hooks only (all projects)
+agent-awareness codex hooks install --project # optional project-scoped hooks file
 agent-awareness mcp install         # add MCP server to Claude Code
 agent-awareness codex mcp install   # add MCP server to Codex
 \`\`\`
