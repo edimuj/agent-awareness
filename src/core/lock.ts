@@ -7,7 +7,7 @@
  */
 
 import { mkdir, writeFile, readFile, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 
 const LOCK_DIR = join(homedir(), '.cache', 'agent-awareness', 'state.lock');
@@ -60,6 +60,8 @@ async function isStale(): Promise<boolean> {
 
 async function tryAcquire(): Promise<boolean> {
   try {
+    // Ensure lock parent exists before atomic lock-dir creation.
+    await mkdir(dirname(LOCK_DIR), { recursive: true });
     await mkdir(LOCK_DIR);
     // Write meta with our PID
     const meta: LockMeta = { pid: process.pid, createdAt: new Date().toISOString() };

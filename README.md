@@ -21,14 +21,16 @@ Anything. That's the point. Here's what ships built-in:
 
 | Plugin | What it knows |
 |--------|--------------|
-| **quota** | Real API utilization — burn rate, reset timers, not wall-clock guessing |
-| **system** | Disk, memory, load — warns before your box catches fire |
 | **time-date** | Time, date, weekday, week number, business hours |
-| **weather** | Live weather via Open-Meteo — no API key needed |
-| **energy-curve** | Adapts agent style to your energy rhythm throughout the day |
-| **focus-timer** | Pomodoro timer — agent adjusts behavior during focus/break sessions |
 
-But the built-ins are just the starting point. The plugin system is where it gets interesting:
+Everything else ships as installable npm plugins. Common ones:
+- `agent-awareness-plugin-quota`
+- `agent-awareness-plugin-system`
+- `agent-awareness-plugin-weather`
+- `agent-awareness-plugin-energy-curve`
+- `agent-awareness-plugin-focus-timer`
+
+The plugin system is where it gets interesting:
 
 - **Home automation** — "The living room is 24°C, toddler's room is 19°C, front door locked"
 - **Infrastructure** — "3 pods restarting in staging, prod latency p99 at 340ms"
@@ -42,7 +44,7 @@ But the built-ins are just the starting point. The plugin system is where it get
 
 If you can `fetch()` it, `exec()` it, or `readFile()` it — your agent can know about it. Write a `gather()` function, return a string, done.
 
-For real-world examples, check out [agent-awareness-plugins](https://github.com/edimuj/agent-awareness-plugins) — community plugins like **github-watcher** (PR/issue activity, review requests) and **server-health** (multi-server monitoring with acknowledgeable alerts).
+For real-world examples, check out [agent-awareness-plugins](https://github.com/edimuj/agent-awareness-plugins) — it now hosts the former built-ins (`quota`, `system`, `weather`, `energy-curve`, `focus-timer`) plus community plugins like **github-watcher** and **server-health**.
 
 ## Install
 
@@ -62,6 +64,30 @@ git clone https://github.com/edimuj/agent-awareness.git
 cd agent-awareness && npm install
 /plugin install /path/to/agent-awareness
 ```
+
+For Codex CLI in this repo:
+```bash
+agent-awareness codex setup           # MCP + optional hooks + smoke test
+```
+
+Install additional awareness plugins globally (recommended):
+```bash
+npm install -g agent-awareness-plugin-quota
+npm install -g agent-awareness-plugin-system
+npm install -g agent-awareness-plugin-weather
+npm install -g agent-awareness-plugin-energy-curve
+npm install -g agent-awareness-plugin-focus-timer
+```
+
+2-minute Codex setup from anywhere:
+```bash
+npx agent-awareness@latest codex setup
+```
+
+Codex plugin manifest files are included:
+- `.codex-plugin/plugin.json`
+- `.codex-mcp.json`
+- `hooks.json`
 
 ## Build your own plugin in 5 minutes
 
@@ -122,7 +148,7 @@ Key details:
 
 Plugins load from four places (later overrides earlier by name):
 
-1. **Built-in** — ships with agent-awareness
+1. **Built-in** — currently `time-date` only
 2. **Global npm** — `npm install -g agent-awareness-plugin-*` (recommended for users)
 3. **Local npm** — `npm install agent-awareness-plugin-*` in the agent-awareness directory
 4. **Local** — drop a `.ts` file in `~/.config/agent-awareness/plugins/`
@@ -193,8 +219,12 @@ Tool names auto-scope: `home-sensors` + `temperature` → `awareness_home_sensor
 The MCP server is optional — plugins work fine without it.
 
 ```bash
-agent-awareness mcp install    # add to Claude Code
-agent-awareness mcp status     # check config
+agent-awareness mcp install          # add to Claude Code
+agent-awareness mcp status           # check Claude Code config
+agent-awareness codex setup          # one-command Codex setup (MCP + optional hooks + smoke)
+agent-awareness codex doctor         # diagnose Codex integration health
+agent-awareness codex hooks status   # inspect Codex hooks status
+agent-awareness codex mcp status     # inspect Codex MCP status
 ```
 
 ## Lifecycle hooks
@@ -294,9 +324,17 @@ agent-awareness create <name> --mcp    # scaffold with MCP tools
 agent-awareness create <name> --local  # scaffold local plugin
 agent-awareness doctor                 # diagnose loading, config, logs
 agent-awareness list                   # show plugins + status
-agent-awareness mcp install            # add MCP server
-agent-awareness mcp uninstall          # remove MCP server
-agent-awareness mcp status             # check MCP config
+agent-awareness mcp install            # add MCP server to Claude Code
+agent-awareness mcp uninstall          # remove MCP server from Claude Code
+agent-awareness mcp status             # check Claude Code MCP config
+agent-awareness codex hooks install    # add Codex hooks (SessionStart/UserPromptSubmit)
+agent-awareness codex hooks uninstall  # remove Codex hooks
+agent-awareness codex hooks status     # check Codex hooks config
+agent-awareness codex mcp install      # add MCP server to Codex
+agent-awareness codex mcp uninstall    # remove MCP server from Codex
+agent-awareness codex mcp status       # check Codex MCP config
+agent-awareness codex setup            # one-command Codex setup + smoke test
+agent-awareness codex doctor           # diagnose Codex integration
 ```
 
 ## Diagnostics

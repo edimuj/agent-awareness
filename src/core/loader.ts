@@ -57,7 +57,7 @@ export async function loadPlugins(): Promise<LoadResult> {
   return { plugins: [...seen.values()], errors };
 }
 
-/** Load .ts files and directories (with index.ts) from a plugin directory. */
+/** Load plugin files (.ts/.js/.mjs) and directories (index.ts/index.js/index.mjs). */
 async function loadFromDirectory(
   dir: string,
   source: string,
@@ -86,16 +86,25 @@ async function loadFromDirectory(
       const info = await stat(fullPath);
       let modulePath: string;
 
-      if (info.isFile() && entry.endsWith('.ts') && !entry.endsWith('.test.ts')) {
+      if (
+        info.isFile()
+        && (entry.endsWith('.ts') || entry.endsWith('.js') || entry.endsWith('.mjs'))
+        && !entry.endsWith('.test.ts')
+      ) {
         modulePath = fullPath;
       } else if (info.isDirectory()) {
         modulePath = join(fullPath, 'index.ts');
         try {
           await stat(modulePath);
         } catch {
-          // No index.ts — try index.mjs for JS-only plugin authors
-          modulePath = join(fullPath, 'index.mjs');
-          await stat(modulePath); // throws if neither exists
+          // No index.ts — try JS entry points for plugin authors.
+          modulePath = join(fullPath, 'index.js');
+          try {
+            await stat(modulePath);
+          } catch {
+            modulePath = join(fullPath, 'index.mjs');
+            await stat(modulePath); // throws if none exist
+          }
         }
       } else {
         continue; // skip non-plugin files

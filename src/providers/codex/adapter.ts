@@ -1,11 +1,3 @@
-/**
- * Codex provider — NOT YET SUPPORTED.
- *
- * Codex CLI lacks a stable hook system for context injection.
- * Hooks exist in beta (--hooks flag) but aren't enabled by default.
- * This adapter is ready for when Codex hooks stabilize.
- */
-
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -13,12 +5,13 @@ import { Registry } from '../../core/registry.ts';
 import { PluginDispatcher } from '../../core/dispatcher.ts';
 import { render } from '../../core/renderer.ts';
 import {
-  loadState, saveState, getPluginState, setPluginState,
+  loadState, getPluginState, setPluginState, withState,
   loadTickerCache, writeTickerPid, readTickerPid, clearTickerPid,
 } from '../../core/state.ts';
 import { loadPlugins } from '../../core/loader.ts';
 import { parseInterval } from '../../core/types.ts';
-import type { GatherContext, GatherResult, Trigger } from '../../core/types.ts';
+import type { GatherContext, GatherResult, PluginState, Trigger } from '../../core/types.ts';
+import { createClaimContext, pruneExpiredClaims } from '../../core/claims.ts';
 import { closeSync } from 'node:fs';
 import { openLogFd, rotateLogIfNeeded } from '../../core/log.ts';
 
@@ -113,8 +106,14 @@ export async function run(event: string): Promise<string> {
     await manageTicker(registry);
   }
 
-  let state = await loadState();
-  const triggered = registry.getTriggeredPlugins(event, state);
+  // Prune expired claims at session start
+  if (event === 'session-start') {
+    await pruneExpiredClaims();
+  }
+
+  // Read state (non-locked) for trigger matching and dispatch planning
+  const preState = await loadState();
+  const triggered = registry.getTriggeredPlugins(event, preState);
 
   // For prompt events, also include cached results from the ticker
   // for interval plugins that aren't in the triggered list
@@ -137,22 +136,25 @@ export async function run(event: string): Promise<string> {
       pluginName: plugin.name,
       executor: (signal: AbortSignal) => {
         const config = registry.getPluginConfig(plugin.name)!;
-        const prevState = getPluginState(state, plugin.name);
-        return Promise.resolve(plugin.gather(trigger as Trigger, config, prevState, { ...CONTEXT, signal }));
+        const prevState = getPluginState(preState, plugin.name);
+        const claims = createClaimContext(plugin.name);
+        return Promise.resolve(plugin.gather(trigger as Trigger, config, prevState, { ...CONTEXT, signal, claims }));
       },
     }));
 
   // Dispatch all plugins in parallel, each with its own timeout and fault isolation
   const dispatched = await dispatcher.dispatchAll(dispatchEntries);
 
+  // Atomic state update — lock protects against ticker/MCP races
   const results: GatherResult[] = [];
-  for (const { pluginName, result } of dispatched) {
-    if (!result) continue;
-    results.push(result);
-    state = setPluginState(state, pluginName, result.state);
-  }
-
-  await saveState(state);
+  await withState((state: PluginState) => {
+    for (const { pluginName, result } of dispatched) {
+      if (!result) continue;
+      results.push(result);
+      state = setPluginState(state, pluginName, result.state);
+    }
+    return state;
+  });
 
   const allResults = [...results, ...tickerResults];
   if (allResults.length === 0) return '';

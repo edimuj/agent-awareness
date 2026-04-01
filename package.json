@@ -40,7 +40,10 @@
     "config/",
     "skills/",
     ".claude-plugin/",
+    ".codex-plugin/",
     ".mcp.json",
+    ".codex-mcp.json",
+    "hooks.json",
     "docs/",
     "README.md"
   ],

@@ -1,0 +1,41 @@
+{
+  "name": "agent-awareness",
+  "version": "0.4.2",
+  "description": "Modular awareness plugins that broaden AI agent context with environmental data",
+  "author": {
+    "name": "edimuj",
+    "url": "https://github.com/edimuj"
+  },
+  "homepage": "https://github.com/edimuj/agent-awareness",
+  "repository": "https://github.com/edimuj/agent-awareness",
+  "license": "MIT",
+  "keywords": [
+    "agent-awareness",
+    "codex",
+    "mcp",
+    "hooks",
+    "agent",
+    "context"
+  ],
+  "hooks": "./hooks.json",
+  "mcpServers": "./.codex-mcp.json",
+  "interface": {
+    "displayName": "Agent Awareness",
+    "shortDescription": "Inject time, weather, quota, and system context into Codex sessions",
+    "longDescription": "Give Codex continuous awareness of real-world and operational context by combining trigger-based hooks and an MCP server for on-demand tools.",
+    "developerName": "edimuj",
+    "category": "Coding",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/edimuj/agent-awareness",
+    "privacyPolicyURL": "https://github.com/edimuj/agent-awareness",
+    "termsOfServiceURL": "https://github.com/edimuj/agent-awareness",
+    "defaultPrompt": [
+      "Set up agent-awareness for this Codex project and verify hooks plus MCP are active"
+    ],
+    "brandColor": "#2A6A5B"
+  }
+}

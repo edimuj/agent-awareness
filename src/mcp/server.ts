@@ -21,6 +21,8 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { execFileSync } from 'node:child_process';
 import { readdir, stat } from 'node:fs/promises';
@@ -97,11 +99,20 @@ async function main(): Promise<void> {
     console.error('[agent-awareness-mcp] No plugins with MCP tools found.');
   }
 
-  // Create low-level server with tools capability
+  // Create low-level server with tools + resources capabilities
   const server = new Server(
     { name: 'agent-awareness', version: '0.1.0' },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {}, resources: {} } },
   );
+
+  // Advertise empty resource lists so MCP clients don't fail discovery on "Method not found".
+  server.setRequestHandler(ListResourcesRequestSchema, async () => ({
+    resources: [],
+  }));
+
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
+    resourceTemplates: [],
+  }));
 
   // Handle tools/list — return all registered tools with JSON Schema
   server.setRequestHandler(ListToolsRequestSchema, async () => ({

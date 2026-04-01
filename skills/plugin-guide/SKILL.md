@@ -9,7 +9,7 @@ version: 0.1.0
 ## Plugin Architecture
 
 agent-awareness plugins are TypeScript modules that export a default `AwarenessPlugin` object. Plugins provide contextual data to AI agents via `gather()` and optional MCP tools for real-time interaction.
-
+ok 
 **Plugin sources (discovery order, later overrides earlier):**
 1. **Built-in** — `src/plugins/` inside agent-awareness
 2. **Global npm** — `npm root -g` directory, packages matching `agent-awareness-plugin-*`

@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./hooks/codex-session-start.ts",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node ./hooks/codex-prompt-submit.ts",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

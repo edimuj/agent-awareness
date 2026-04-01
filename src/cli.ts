@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 
 import { parseArgs } from 'node:util';
+import { codexDoctor } from './commands/codex-doctor.ts';
+import { codexHooksInstall, codexHooksStatus, codexHooksUninstall } from './commands/codex-hooks.ts';
+import { codexMcpInstall, codexMcpStatus, codexMcpUninstall } from './commands/codex-mcp.ts';
+import { codexSetup } from './commands/codex-setup.ts';
 import { create } from './commands/create.ts';
 import { doctor } from './commands/doctor.ts';
 import { list } from './commands/list.ts';
@@ -12,9 +16,13 @@ Commands:
   create <name>     Scaffold a new awareness plugin
   doctor            Diagnose plugin loading, config, and log status
   list              Show all discovered plugins and their status
-  mcp install       Add MCP server to Claude Code config
-  mcp uninstall     Remove MCP server from Claude Code config
-  mcp status        Show MCP server configuration status
+  mcp install       Add MCP server to Claude Code plugin config
+  mcp uninstall     Remove MCP server from Claude Code plugin config
+  mcp status        Show Claude Code MCP server status
+  codex setup       One-command Codex setup (MCP + optional hooks + smoke test)
+  codex doctor      Diagnose Codex integration health
+  codex mcp ...     Manage Codex MCP server (install|uninstall|status)
+  codex hooks ...   Manage Codex hooks (install|uninstall|status)
 
 Options:
   --help, -h        Show this help
@@ -39,9 +47,14 @@ const { positionals, values } = parseArgs({
 
 const command = positionals[0];
 
-if (values.help || !command) {
+if (values.help) {
   console.log(USAGE);
-  process.exit(command ? 0 : 2);
+  process.exit(0);
+}
+
+if (!command) {
+  console.log(USAGE);
+  process.exit(2);
 }
 
 switch (command) {
@@ -86,6 +99,55 @@ switch (command) {
         break;
       default:
         console.error(`Unknown mcp subcommand: ${sub ?? '(none)'}\nUsage: agent-awareness mcp [install|uninstall|status]`);
+        process.exit(2);
+    }
+    break;
+  }
+  case 'codex': {
+    const sub = positionals[1];
+    if (sub === 'setup') {
+      await codexSetup();
+      break;
+    }
+    if (sub === 'doctor') {
+      await codexDoctor();
+      break;
+    }
+    if (sub !== 'mcp' && sub !== 'hooks') {
+      console.error(`Unknown codex subcommand: ${sub ?? '(none)'}\nUsage: agent-awareness codex [setup|doctor|mcp|hooks] [install|uninstall|status]`);
+      process.exit(2);
+    }
+    const action = positionals[2];
+    if (sub === 'mcp') {
+      switch (action) {
+        case 'install':
+          await codexMcpInstall();
+          break;
+        case 'uninstall':
+          await codexMcpUninstall();
+          break;
+        case 'status':
+          await codexMcpStatus();
+          break;
+        default:
+          console.error(`Unknown codex mcp subcommand: ${action ?? '(none)'}\nUsage: agent-awareness codex mcp [install|uninstall|status]`);
+          process.exit(2);
+      }
+      break;
+    }
+
+    switch (action) {
+      case 'install':
+        await codexHooksInstall();
+        break;
+      case 'uninstall':
+        await codexHooksUninstall();
+        break;
+      case 'status':
+        await codexHooksStatus();
+        break;
+      default:
+        console.error(`Unknown codex hooks subcommand: ${action ?? '(none)'}\nUsage: agent-awareness codex hooks [install|uninstall|status]`);
         process.exit(2);
     }
     break;
