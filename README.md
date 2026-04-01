@@ -70,6 +70,7 @@ For Codex CLI:
 npm install -g agent-awareness
 agent-awareness codex setup           # MCP + optional hooks + smoke test
 ```
+Run this once, then use Codex in any project.
 
 Install additional awareness plugins globally (recommended):
 ```bash
@@ -78,12 +79,6 @@ npm install -g agent-awareness-plugin-system
 npm install -g agent-awareness-plugin-weather
 npm install -g agent-awareness-plugin-energy-curve
 npm install -g agent-awareness-plugin-focus-timer
-```
-
-Quick Codex setup from anywhere:
-```bash
-npm install -g agent-awareness
-agent-awareness codex setup
 ```
 
 Why not `npx` for setup? MCP entries must point to a stable script path; `npx` installs to an ephemeral cache path, so `agent-awareness codex mcp install` intentionally blocks that flow.
