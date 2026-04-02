@@ -58,11 +58,12 @@ async function createNpm(opts: CreateOptions): Promise<void> {
     files: ['index.js', 'src/**/*.js', 'src/**/*.d.ts', 'README.md'],
     scripts: {
       build: 'tsc -p tsconfig.build.json',
+      typecheck: 'tsc --noEmit',
       prepublishOnly: 'npm run build',
     },
-    keywords: ['agent-awareness-plugin', 'ai', 'agent', 'awareness'],
-    peerDependencies: { 'agent-awareness': '>=0.3.0' },
-    devDependencies: { 'agent-awareness': '^0.3.0', typescript: '^5.8' },
+    keywords: ['agent-awareness-plugin', 'ai', 'agent', 'awareness', 'mcp'],
+    peerDependencies: { 'agent-awareness': '>=0.4.0' },
+    devDependencies: { 'agent-awareness': '^0.4.0', typescript: '^5.8', '@types/node': '^25.5.0' },
     license: 'MIT',
   };
 
@@ -128,11 +129,12 @@ function generatePluginSource(opts: CreateOptions): string {
 
   const mcpBlock = opts.mcp ? `
 
-  // MCP tools — real-time interaction via MCP server.
+  // Optional interactive MCP tools.
+  // MCP-first pattern: emit one-way real-time context from gather(), add tools only when useful.
   // Tool names are auto-scoped: "${opts.name}" + "status" → "awareness_${opts.name.replace(/-/g, '_')}_status"
   // One-command Codex setup:            agent-awareness codex setup
   // Install hooks in Codex only:        agent-awareness codex hooks install --global
-  // Install MCP server in Claude Code: agent-awareness mcp install
+  // Install MCP server in Claude Code:  agent-awareness mcp install
   // Install MCP server in Codex only:   agent-awareness codex mcp install
   mcp: {
     tools: [
@@ -145,11 +147,16 @@ function generatePluginSource(opts: CreateOptions): string {
             verbose: { type: 'boolean', description: 'Include detailed info' },
           },
         },
-        async handler(params: Record<string, unknown>, config: PluginConfig, signal: AbortSignal) {
+        async handler(
+          params: Record<string, unknown>,
+          config: PluginConfig,
+          signal: AbortSignal,
+          prevState: Record<string, unknown> | null,
+        ) {
           // TODO: return real-time data
           return {
             text: '${opts.name} status: replace with real data',
-            state: {},
+            state: prevState ?? {},
           };
         },
       },
@@ -177,14 +184,22 @@ ${triggerDefaults}
   // onStop() { /* session end: graceful shutdown */ },
 
   gather(trigger: Trigger, config: PluginConfig, prevState, context: GatherContext) {
-    // context.provider — which agent ('claude-code', 'codex', etc.)
-    // context.signal  — AbortSignal for cancellation (check in slow I/O)
-    // context.log     — structured logging ({ warn, error })
-    // TODO: gather awareness data and return compact text
-    return {
-      text: \`${opts.name}: replace this with real output\`,
-      state: {},
-    };
+    // MCP-first recommendation:
+    // 1) gather() emits one-way, change-driven context
+    // 2) optional mcp.tools handle on-demand query/action flows
+    //
+    // Useful context fields:
+    // context.provider        — which agent ('claude-code', 'codex', etc.)
+    // context.sessionRepo     — active repo (owner/repo) when detectable
+    // context.sessionRepoSource — how sessionRepo was inferred
+    // context.cwd / context.gitRoot — execution paths when available
+    // context.signal          — AbortSignal for cancellation in slow I/O
+    // context.log             — structured logging ({ warn, error })
+    // context.claims          — event claiming across concurrent sessions
+    //
+    // TODO: gather awareness data and only emit when something changed/relevant.
+    // Return null to stay silent when there is no actionable update.
+    return null;
   },${mcpBlock}
 } satisfies AwarenessPlugin;
 `;
@@ -222,6 +237,12 @@ npm install -g ${dirName}
 
 The agent-awareness loader auto-discovers \`agent-awareness-plugin-*\` packages from both global and local \`node_modules/\`.
 
+## Authoring guide
+
+See the plugin creator guide for step-by-step patterns (MCP-first design, caveats, troubleshooting):
+
+- <https://github.com/edimuj/agent-awareness/blob/main/docs/plugin-creator-guide.md>
+
 ## Configuration
 
 Override defaults in \`~/.config/agent-awareness/plugins.d/${opts.name}.json\`:
@@ -236,9 +257,4 @@ ${mcpSection}
 
 MIT
 `;
-}
-
-function getProjectRoot(): string {
-  // Best-effort: assume we're running from the agent-awareness project
-  return process.env.npm_config_local_prefix ?? '.';
 }

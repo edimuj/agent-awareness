@@ -60,6 +60,29 @@ Prefer low-noise triggers by default:
 
 Avoid broad `prompt` triggers unless absolutely necessary.
 
+## MCP-first architecture (recommended)
+
+Treat MCP as the primary real-time channel.
+
+Default plugin shape:
+
+1. Real-time, one-way signal via MCP-facing plugin behavior (for example: CI failed, new inbound messages, infra alert).
+2. Sparse hook injection as baseline context (session-start + low-frequency change summaries).
+3. Optional interactive MCP tools only when the agent needs pull/action behavior.
+
+Practical split:
+
+1. **One-way event context (default):**
+   - "Build failed for `owner/repo`"
+   - "2 new WhatsApp messages"
+   - "Server memory crossed warning threshold"
+2. **Interactive tools (optional):**
+   - `status` for deeper inspection
+   - `check` to force refresh
+   - `ack`/`mute` style control actions when relevant
+
+Do not use hook output as a high-frequency event firehose. Keep hooks compact and change-driven.
+
 ## 4) Use context for relevance
 
 `GatherContext` includes useful runtime metadata:
@@ -122,15 +145,22 @@ if (claimed && !claimed.claimed) return null;
 
 This prevents multiple concurrent sessions from taking the same action.
 
-## 9) Add MCP tools only when needed
+## 9) MCP surface design
 
-Use MCP for on-demand actions and deep inspection, not for routine periodic text.
+If the plugin is event-driven, MCP is still the default integration surface.
 
-Typical MCP tools:
+Tooling guidance:
+
+1. Start with one-way event-oriented output.
+2. Add tools only when they provide clear operator/agent value.
+3. Keep tool set minimal and predictable.
+
+Common tool patterns:
 
 1. `check` (force refresh now)
-2. `status` (inspect internal state)
+2. `status` (inspect current state)
 3. `list` (enumerate tracked entities)
+4. `ack` (acknowledge/snooze/mute an alert)
 
 ## 10) Test before publish
 
@@ -182,8 +212,8 @@ npm publish
 
 1. Plugin not loading:
    `agent-awareness doctor` and verify package name pattern `agent-awareness-plugin-*`
-2. MCP tools missing:
-   verify plugin exports `mcp.tools` and restart MCP session/client
+2. MCP surface missing:
+   verify plugin MCP wiring and restart MCP session/client
 3. Repeated output:
    verify state cursor updates and change detection logic
 4. No interval output:
