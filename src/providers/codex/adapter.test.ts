@@ -124,6 +124,7 @@ test('codex session-start wires claims context and prunes stale claims', async (
   const payload = JSON.parse(stdout);
   assert.deepEqual(payload.hookSpecificOutput?.hookEventName, 'SessionStart');
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /claims:enabled/);
+  assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /\|\|/);
 
   const staleStillExists = await stat(staleClaim).then(
     () => true,
@@ -167,4 +168,5 @@ test('codex prompt-submit emits valid JSON hook output shape', async () => {
   const payload = JSON.parse(stdout);
   assert.deepEqual(payload.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /prompt:enabled/);
+  assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /\|\|/);
 });
