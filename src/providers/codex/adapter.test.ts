@@ -170,3 +170,61 @@ test('codex prompt-submit emits valid JSON hook output shape', async () => {
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /prompt:enabled/);
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /\|\|/);
 });
+
+test('codex prompt-submit surfaces ticker cache once per gatheredAt', async () => {
+  const tempHome = await mkdtemp(join(tmpdir(), 'agent-awareness-home-'));
+  const configsDir = join(tempHome, '.config', 'agent-awareness', 'plugins.d');
+  const cacheDir = join(tempHome, '.cache', 'agent-awareness');
+  const tickerCachePath = join(cacheDir, 'ticker-cache.json');
+
+  await mkdir(configsDir, { recursive: true });
+  await mkdir(cacheDir, { recursive: true });
+
+  for (const name of DISABLED_PLUGIN_NAMES) {
+    await writeFile(join(configsDir, `${name}.json`), '{ "enabled": false }\n');
+  }
+
+  await writeFile(
+    tickerCachePath,
+    JSON.stringify({
+      'interval-demo': {
+        text: 'Interval payload',
+        gatheredAt: '2026-04-02T08:00:00.000Z',
+      },
+    }) + '\n',
+  );
+
+  const first = await runNode(
+    ['hooks/codex-prompt-submit.ts'],
+    { ...process.env, HOME: tempHome },
+  );
+  assert.equal(first.code, 0);
+  const firstPayload = JSON.parse(first.stdout);
+  assert.deepEqual(firstPayload.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
+  assert.match(String(firstPayload.hookSpecificOutput?.additionalContext ?? ''), /Interval payload/);
+
+  const second = await runNode(
+    ['hooks/codex-prompt-submit.ts'],
+    { ...process.env, HOME: tempHome },
+  );
+  assert.equal(second.code, 0);
+  assert.equal(second.stdout.trim(), '');
+
+  await writeFile(
+    tickerCachePath,
+    JSON.stringify({
+      'interval-demo': {
+        text: 'Interval payload',
+        gatheredAt: '2026-04-02T08:10:00.000Z',
+      },
+    }) + '\n',
+  );
+
+  const third = await runNode(
+    ['hooks/codex-prompt-submit.ts'],
+    { ...process.env, HOME: tempHome },
+  );
+  assert.equal(third.code, 0);
+  const thirdPayload = JSON.parse(third.stdout);
+  assert.match(String(thirdPayload.hookSpecificOutput?.additionalContext ?? ''), /Interval payload/);
+});

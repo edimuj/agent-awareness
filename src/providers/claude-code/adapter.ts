@@ -19,9 +19,20 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
 const TICKER_SCRIPT = join(PROJECT_ROOT, 'src', 'daemon', 'ticker.ts');
+const PROMPT_META_KEY = '__agent_awareness_prompt_meta_claude_code';
 
 const CONTEXT: GatherContext = { provider: 'claude-code' };
 const dispatcher = new PluginDispatcher();
+
+interface PromptMetaState {
+  tickerSeen?: Record<string, string>;
+}
+
+function getPromptMeta(preState: PluginState): PromptMetaState {
+  const raw = preState[PROMPT_META_KEY];
+  if (!raw || typeof raw !== 'object') return {};
+  return raw as PromptMetaState;
+}
 
 /** Build a registry with all discovered plugins and loaded config. */
 async function createRegistry(): Promise<Registry> {
@@ -116,13 +127,21 @@ export async function run(event: string): Promise<string> {
   const triggered = registry.getTriggeredPlugins(event, preState);
 
   // For prompt events, also include cached results from the ticker
-  // for interval plugins that aren't in the triggered list
+  // for interval plugins that have fresh (unseen) cache entries.
   const tickerResults: GatherResult[] = [];
+  const tickerSeenUpdates: Record<string, string> = {};
   if (event === 'prompt') {
     const cache = await loadTickerCache();
+    const seen = getPromptMeta(preState).tickerSeen ?? {};
     for (const [pluginName, cached] of Object.entries(cache)) {
       const alreadyTriggered = triggered.some(t => t.plugin.name === pluginName);
-      if (!alreadyTriggered && cached.text) {
+      if (alreadyTriggered || !cached.text) continue;
+
+      const gatheredAt = typeof cached.gatheredAt === 'string' ? cached.gatheredAt : '';
+      if (gatheredAt && seen[pluginName] === gatheredAt) continue;
+
+      if (gatheredAt) tickerSeenUpdates[pluginName] = gatheredAt;
+      if (cached.text) {
         tickerResults.push({ text: cached.text });
       }
     }
@@ -146,14 +165,34 @@ export async function run(event: string): Promise<string> {
 
   // Atomic state update — lock protects against ticker/MCP races
   const results: GatherResult[] = [];
-  await withState((state: PluginState) => {
-    for (const { pluginName, result } of dispatched) {
-      if (!result) continue;
-      results.push(result);
-      state = setPluginState(state, pluginName, result.state);
-    }
-    return state;
-  });
+  const hasPromptTickerUpdates = Object.keys(tickerSeenUpdates).length > 0;
+  const hasGatherResults = dispatched.some(({ result }) => !!result);
+  if (hasGatherResults || hasPromptTickerUpdates) {
+    await withState((state: PluginState) => {
+      for (const { pluginName, result } of dispatched) {
+        if (!result) continue;
+        results.push(result);
+        state = setPluginState(state, pluginName, result.state);
+      }
+
+      if (event === 'prompt' && hasPromptTickerUpdates) {
+        const currentMeta = getPromptMeta(state);
+        state = {
+          ...state,
+          [PROMPT_META_KEY]: {
+            ...currentMeta,
+            tickerSeen: {
+              ...(currentMeta.tickerSeen ?? {}),
+              ...tickerSeenUpdates,
+            },
+            _updatedAt: new Date().toISOString(),
+          },
+        };
+      }
+
+      return state;
+    });
+  }
 
   const allResults = [...results, ...tickerResults];
   if (allResults.length === 0) return '';
