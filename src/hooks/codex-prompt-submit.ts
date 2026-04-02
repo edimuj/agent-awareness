@@ -16,6 +16,7 @@ function formatForHookContext(text: string): string {
 const output = await run('prompt');
 if (output) {
   process.stdout.write(JSON.stringify({
+    suppressOutput: true,
     hookSpecificOutput: {
       hookEventName: 'UserPromptSubmit',
       additionalContext: formatForHookContext(output),

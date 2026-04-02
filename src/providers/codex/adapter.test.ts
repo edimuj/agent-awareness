@@ -122,6 +122,7 @@ test('codex session-start wires claims context and prunes stale claims', async (
 
   assert.equal(code, 0);
   const payload = JSON.parse(stdout);
+  assert.equal(payload.suppressOutput, true);
   assert.deepEqual(payload.hookSpecificOutput?.hookEventName, 'SessionStart');
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /claims:enabled/);
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /\|\|/);
@@ -166,6 +167,7 @@ test('codex prompt-submit emits valid JSON hook output shape', async () => {
 
   assert.equal(code, 0);
   const payload = JSON.parse(stdout);
+  assert.equal(payload.suppressOutput, true);
   assert.deepEqual(payload.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /prompt:enabled/);
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /\|\|/);
@@ -227,4 +229,42 @@ test('codex prompt-submit surfaces ticker cache once per gatheredAt', async () =
   assert.equal(third.code, 0);
   const thirdPayload = JSON.parse(third.stdout);
   assert.match(String(thirdPayload.hookSpecificOutput?.additionalContext ?? ''), /Interval payload/);
+});
+
+test('codex prompt-submit ignores pre-session ticker cache on first prompt', async () => {
+  const tempHome = await mkdtemp(join(tmpdir(), 'agent-awareness-home-'));
+  const configsDir = join(tempHome, '.config', 'agent-awareness', 'plugins.d');
+  const cacheDir = join(tempHome, '.cache', 'agent-awareness');
+  const tickerCachePath = join(cacheDir, 'ticker-cache.json');
+
+  await mkdir(configsDir, { recursive: true });
+  await mkdir(cacheDir, { recursive: true });
+
+  for (const name of DISABLED_PLUGIN_NAMES) {
+    await writeFile(join(configsDir, `${name}.json`), '{ "enabled": false }\n');
+  }
+
+  await writeFile(
+    tickerCachePath,
+    JSON.stringify({
+      stale: {
+        text: 'Stale payload',
+        gatheredAt: '2020-01-01T00:00:00.000Z',
+      },
+    }) + '\n',
+  );
+
+  const started = await runNode(
+    ['hooks/codex-session-start.ts'],
+    { ...process.env, HOME: tempHome },
+  );
+  assert.equal(started.code, 0);
+  assert.equal(started.stdout.trim(), '');
+
+  const prompt = await runNode(
+    ['hooks/codex-prompt-submit.ts'],
+    { ...process.env, HOME: tempHome },
+  );
+  assert.equal(prompt.code, 0);
+  assert.equal(prompt.stdout.trim(), '');
 });

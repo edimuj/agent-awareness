@@ -6,7 +6,7 @@ import { PluginDispatcher } from '../../core/dispatcher.ts';
 import { render } from '../../core/renderer.ts';
 import {
   loadState, getPluginState, setPluginState, withState,
-  loadTickerCache, writeTickerPid, readTickerPid, clearTickerPid,
+  loadTickerCache, saveTickerCache, writeTickerPid, readTickerPid, clearTickerPid,
 } from '../../core/state.ts';
 import { loadPlugins } from '../../core/loader.ts';
 import { parseInterval } from '../../core/types.ts';
@@ -26,6 +26,7 @@ const dispatcher = new PluginDispatcher();
 
 interface PromptMetaState {
   tickerSeen?: Record<string, string>;
+  sessionStartedAt?: string;
 }
 
 function getPromptMeta(preState: PluginState): PromptMetaState {
@@ -114,6 +115,8 @@ export async function run(event: string): Promise<string> {
 
   if (event === 'session-start') {
     await registry.startPlugins();
+    // Drop stale interval cache from previous sessions before the new ticker starts.
+    await saveTickerCache({});
     await manageTicker(registry);
   }
 
@@ -132,13 +135,18 @@ export async function run(event: string): Promise<string> {
   const tickerSeenUpdates: Record<string, string> = {};
   if (event === 'prompt') {
     const cache = await loadTickerCache();
-    const seen = getPromptMeta(preState).tickerSeen ?? {};
+    const meta = getPromptMeta(preState);
+    const seen = meta.tickerSeen ?? {};
+    const sessionStartedAtMs = meta.sessionStartedAt ? Date.parse(meta.sessionStartedAt) : NaN;
     for (const [pluginName, cached] of Object.entries(cache)) {
       const alreadyTriggered = triggered.some(t => t.plugin.name === pluginName);
       if (alreadyTriggered || !cached.text) continue;
 
       const gatheredAt = typeof cached.gatheredAt === 'string' ? cached.gatheredAt : '';
-      if (gatheredAt && seen[pluginName] === gatheredAt) continue;
+      const gatheredAtMs = gatheredAt ? Date.parse(gatheredAt) : NaN;
+      if (!Number.isFinite(gatheredAtMs)) continue;
+      if (Number.isFinite(sessionStartedAtMs) && gatheredAtMs <= sessionStartedAtMs) continue;
+      if (seen[pluginName] === gatheredAt) continue;
 
       if (gatheredAt) tickerSeenUpdates[pluginName] = gatheredAt;
       if (cached.text) {
@@ -167,12 +175,24 @@ export async function run(event: string): Promise<string> {
   const results: GatherResult[] = [];
   const hasPromptTickerUpdates = Object.keys(tickerSeenUpdates).length > 0;
   const hasGatherResults = dispatched.some(({ result }) => !!result);
-  if (hasGatherResults || hasPromptTickerUpdates) {
+  const shouldStampSessionStart = event === 'session-start';
+  if (hasGatherResults || hasPromptTickerUpdates || shouldStampSessionStart) {
     await withState((state: PluginState) => {
       for (const { pluginName, result } of dispatched) {
         if (!result) continue;
         results.push(result);
         state = setPluginState(state, pluginName, result.state);
+      }
+
+      if (event === 'session-start') {
+        state = {
+          ...state,
+          [PROMPT_META_KEY]: {
+            tickerSeen: {},
+            sessionStartedAt: new Date().toISOString(),
+            _updatedAt: new Date().toISOString(),
+          },
+        };
       }
 
       if (event === 'prompt' && hasPromptTickerUpdates) {
@@ -185,6 +205,7 @@ export async function run(event: string): Promise<string> {
               ...(currentMeta.tickerSeen ?? {}),
               ...tickerSeenUpdates,
             },
+            sessionStartedAt: currentMeta.sessionStartedAt,
             _updatedAt: new Date().toISOString(),
           },
         };

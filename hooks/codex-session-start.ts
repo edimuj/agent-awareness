@@ -17,6 +17,7 @@ function formatForHookContext(text: string): string {
 const output = await run('session-start');
 if (output) {
   process.stdout.write(JSON.stringify({
+    suppressOutput: true,
     hookSpecificOutput: {
       hookEventName: 'SessionStart',
       additionalContext: formatForHookContext(output),
