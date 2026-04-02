@@ -101,6 +101,9 @@ npx agent-awareness create home-sensors --mcp
 npx agent-awareness create my-secret-sauce --local
 ```
 
+Full authoring guide (step-by-step, caveats, troubleshooting, best practices, examples):
+[`docs/plugin-creator-guide.md`](./docs/plugin-creator-guide.md)
+
 Fill in `gather()`. That's the whole API:
 
 ```typescript
@@ -155,6 +158,9 @@ Plugins load from four places (later overrides earlier by name):
 ## Publishing plugins to npm
 
 The scaffold (`agent-awareness create`) sets up everything you need. The key requirement: **npm plugins must ship compiled `.js` files** — Node 24+ blocks TypeScript inside `node_modules/`.
+
+If you want a complete publish workflow and troubleshooting checklist, see:
+[`docs/plugin-creator-guide.md`](./docs/plugin-creator-guide.md)
 
 The scaffold generates a `tsconfig.build.json` with `rewriteRelativeImportExtensions` that compiles `.ts` → `.js` correctly, and a `prepublishOnly` script that builds automatically before `npm publish`.
 
