@@ -35,8 +35,9 @@ describe('time-date plugin', () => {
       const result = plugin.gather('session-start', { ...defaults }, null, {} as any);
       assert.ok(result.state, 'should return state');
       const state = result.state as Record<string, unknown>;
-      assert.equal(typeof state.lastHour, 'number');
-      assert.ok(state.lastHour >= 0 && state.lastHour <= 23, 'hour should be 0-23');
+      const lastHour = state.lastHour as number;
+      assert.equal(typeof lastHour, 'number');
+      assert.ok(lastHour >= 0 && lastHour <= 23, 'hour should be 0-23');
       assert.match(state.lastDay as string, /^\d{4}-\d{2}-\d{2}$/);
     });
 
