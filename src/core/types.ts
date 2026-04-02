@@ -60,6 +60,14 @@ export interface PluginConfig {
 export interface GatherContext {
   /** Provider identifier: 'claude-code', 'codex', 'aider', etc. */
   provider: string;
+  /** Current process working directory where the session/hook runs. */
+  cwd?: string;
+  /** Git root for cwd (if detected). */
+  gitRoot?: string;
+  /** Active session repo inferred from git remote origin (owner/repo), if available. */
+  sessionRepo?: string;
+  /** How sessionRepo was inferred. */
+  sessionRepoSource?: 'git-remote-origin' | 'none';
   /** AbortSignal for cancellation — plugins with slow I/O should check this. */
   signal?: AbortSignal;
   /** Structured logging — use instead of console.error for user-visible warnings. */

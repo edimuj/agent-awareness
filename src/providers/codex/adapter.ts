@@ -14,6 +14,7 @@ import type { GatherContext, GatherResult, PluginState, Trigger } from '../../co
 import { createClaimContext, pruneExpiredClaims } from '../../core/claims.ts';
 import { closeSync } from 'node:fs';
 import { openLogFd, rotateLogIfNeeded } from '../../core/log.ts';
+import { resolveGatherContext } from '../../core/session-context.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -21,7 +22,6 @@ const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
 const TICKER_SCRIPT = join(PROJECT_ROOT, 'src', 'daemon', 'ticker.ts');
 const PROMPT_META_KEY = '__agent_awareness_prompt_meta_codex';
 
-const CONTEXT: GatherContext = { provider: 'codex' };
 const dispatcher = new PluginDispatcher();
 
 interface PromptMetaState {
@@ -91,7 +91,7 @@ async function manageTicker(registry: Registry): Promise<void> {
   // Spawn detached ticker — stderr goes to log file
   await rotateLogIfNeeded();
   const logFd = openLogFd();
-  const child = spawn('node', [TICKER_SCRIPT, CONTEXT.provider], {
+  const child = spawn('node', [TICKER_SCRIPT, 'codex'], {
     stdio: ['ignore', 'ignore', logFd],
     detached: true,
   });
@@ -112,6 +112,7 @@ async function manageTicker(registry: Registry): Promise<void> {
  */
 export async function run(event: string): Promise<string> {
   const registry = await createRegistry();
+  const context: GatherContext = await resolveGatherContext('codex');
 
   if (event === 'session-start') {
     await registry.startPlugins();
@@ -166,7 +167,7 @@ export async function run(event: string): Promise<string> {
         const config = registry.getPluginConfig(plugin.name)!;
         const prevState = getPluginState(preState, plugin.name);
         const claims = createClaimContext(plugin.name);
-        return Promise.resolve(plugin.gather(trigger as Trigger, config, prevState, { ...CONTEXT, signal, claims }));
+        return Promise.resolve(plugin.gather(trigger as Trigger, config, prevState, { ...context, signal, claims }));
       },
     }));
 

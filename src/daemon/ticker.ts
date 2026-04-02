@@ -17,13 +17,14 @@ import { loadState, getPluginState, setPluginState, withState, loadTickerCache, 
 import { parseInterval } from '../core/types.ts';
 import type { GatherContext, PluginState, Trigger } from '../core/types.ts';
 import { createClaimContext } from '../core/claims.ts';
+import { resolveGatherContext } from '../core/session-context.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
 const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
 
 const provider = process.argv[2] ?? 'claude-code';
-const context: GatherContext = { provider };
+let context: GatherContext = { provider };
 
 // Collect interval plugins and their schedules
 interface Schedule {
@@ -125,6 +126,7 @@ async function tick(registry: Registry, schedules: Schedule[]): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  context = await resolveGatherContext(provider);
   const { registry, schedules } = await setup();
 
   if (schedules.length === 0) {
