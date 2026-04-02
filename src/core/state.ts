@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { PluginState } from './types.ts';
@@ -79,6 +79,6 @@ export async function readTickerPid(): Promise<number | null> {
 }
 
 export async function clearTickerPid(): Promise<void> {
-  try { await (await import('node:fs/promises')).unlink(PID_FILE); }
+  try { await unlink(PID_FILE); }
   catch { /* already gone */ }
 }
