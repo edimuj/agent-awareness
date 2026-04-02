@@ -109,7 +109,7 @@ test('codex session-start wires claims context and prunes stale claims', async (
   defaults: { triggers: { 'session-start': true } },
   async gather(_trigger, _config, _prevState, context) {
     const hasClaims = !!(context.claims && typeof context.claims.tryClaim === 'function');
-    return { text: hasClaims ? 'claims:enabled' : 'claims:missing', state: {} };
+    return { text: hasClaims ? 'WARNING: claims:enabled' : 'WARNING: claims:missing', state: {} };
   },
 };
 `,
@@ -154,7 +154,7 @@ test('codex prompt-submit emits valid JSON hook output shape', async () => {
   triggers: ['prompt'],
   defaults: { triggers: { 'prompt': true } },
   gather() {
-    return { text: 'prompt:enabled', state: {} };
+    return { text: 'WARNING: prompt:enabled', state: {} };
   },
 };
 `,
@@ -190,7 +190,7 @@ test('codex prompt-submit surfaces ticker cache once per gatheredAt', async () =
     tickerCachePath,
     JSON.stringify({
       'interval-demo': {
-        text: 'Interval payload',
+        text: 'WARNING: Interval payload',
         gatheredAt: '2026-04-02T08:00:00.000Z',
       },
     }) + '\n',
@@ -203,7 +203,7 @@ test('codex prompt-submit surfaces ticker cache once per gatheredAt', async () =
   assert.equal(first.code, 0);
   const firstPayload = JSON.parse(first.stdout);
   assert.deepEqual(firstPayload.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
-  assert.match(String(firstPayload.hookSpecificOutput?.additionalContext ?? ''), /Interval payload/);
+  assert.match(String(firstPayload.hookSpecificOutput?.additionalContext ?? ''), /WARNING: Interval payload/);
 
   const second = await runNode(
     ['hooks/codex-prompt-submit.ts'],
@@ -216,7 +216,7 @@ test('codex prompt-submit surfaces ticker cache once per gatheredAt', async () =
     tickerCachePath,
     JSON.stringify({
       'interval-demo': {
-        text: 'Interval payload',
+        text: 'WARNING: Interval payload',
         gatheredAt: '2026-04-02T08:10:00.000Z',
       },
     }) + '\n',
@@ -228,7 +228,7 @@ test('codex prompt-submit surfaces ticker cache once per gatheredAt', async () =
   );
   assert.equal(third.code, 0);
   const thirdPayload = JSON.parse(third.stdout);
-  assert.match(String(thirdPayload.hookSpecificOutput?.additionalContext ?? ''), /Interval payload/);
+  assert.match(String(thirdPayload.hookSpecificOutput?.additionalContext ?? ''), /WARNING: Interval payload/);
 });
 
 test('codex prompt-submit ignores pre-session ticker cache on first prompt', async () => {
@@ -260,6 +260,48 @@ test('codex prompt-submit ignores pre-session ticker cache on first prompt', asy
   );
   assert.equal(started.code, 0);
   assert.equal(started.stdout.trim(), '');
+
+  const prompt = await runNode(
+    ['hooks/codex-prompt-submit.ts'],
+    { ...process.env, HOME: tempHome },
+  );
+  assert.equal(prompt.code, 0);
+  assert.equal(prompt.stdout.trim(), '');
+});
+
+test('codex prompt-submit suppresses duplicate prompt facts already injected at session-start', async () => {
+  const tempHome = await mkdtemp(join(tmpdir(), 'agent-awareness-home-'));
+  const pluginsDir = join(tempHome, '.config', 'agent-awareness', 'plugins');
+  const configsDir = join(tempHome, '.config', 'agent-awareness', 'plugins.d');
+
+  await mkdir(pluginsDir, { recursive: true });
+  await mkdir(configsDir, { recursive: true });
+
+  for (const name of DISABLED_PLUGIN_NAMES) {
+    await writeFile(join(configsDir, `${name}.json`), '{ "enabled": false }\n');
+  }
+
+  await writeFile(
+    join(pluginsDir, 'dupe.ts'),
+    `export default {
+  name: 'dupe',
+  description: 'same fact on session-start and prompt',
+  triggers: ['session-start', 'prompt'],
+  defaults: { triggers: { 'session-start': true, 'prompt': true } },
+  gather() {
+    return { text: 'FAILED: duplicate fact', state: {} };
+  },
+};
+`,
+  );
+
+  const started = await runNode(
+    ['hooks/codex-session-start.ts'],
+    { ...process.env, HOME: tempHome },
+  );
+  assert.equal(started.code, 0);
+  const startPayload = JSON.parse(started.stdout);
+  assert.match(String(startPayload.hookSpecificOutput?.additionalContext ?? ''), /FAILED: duplicate fact/);
 
   const prompt = await runNode(
     ['hooks/codex-prompt-submit.ts'],

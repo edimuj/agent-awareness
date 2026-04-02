@@ -13,12 +13,28 @@ export type Trigger =
   | `change:${string}`
   | `interval:${string}`;
 
+/** Priority level used by centralized injection policy. */
+export type AwarenessSeverity = 'critical' | 'warning' | 'info';
+
+/** Delivery lane used by centralized injection policy. */
+export type AwarenessChannel = 'always' | 'on-demand';
+
 /** Result returned by a plugin's gather function or MCP tool handler. */
 export interface GatherResult<TState extends Record<string, unknown> = Record<string, unknown>> {
   /** Compact rendered output for context injection. */
   text: string;
   /** State to persist for change detection. */
   state?: TState;
+  /** Optional severity hint. If omitted, policy infers from text. */
+  severity?: AwarenessSeverity;
+  /** Optional channel hint. If omitted, policy decides from severity. */
+  channel?: AwarenessChannel;
+  /** Stable fingerprint for state-change deduplication. */
+  fingerprint?: string;
+  /** Optional "last changed" timestamp for this fact. */
+  updatedAt?: string;
+  /** Optional short reason tag (used by debug renderers). */
+  reason?: string;
 }
 
 /** JSON Schema definition for an MCP tool's input. */

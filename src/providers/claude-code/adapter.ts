@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { Registry } from '../../core/registry.ts';
 import { PluginDispatcher } from '../../core/dispatcher.ts';
 import { render } from '../../core/renderer.ts';
+import { applyInjectionPolicy } from '../../core/policy.ts';
 import {
   loadState, getPluginState, setPluginState, withState,
   loadTickerCache, saveTickerCache, writeTickerPid, readTickerPid, clearTickerPid,
@@ -11,9 +12,10 @@ import {
 import { loadPlugins } from '../../core/loader.ts';
 import { parseInterval } from '../../core/types.ts';
 import type { GatherContext, GatherResult, PluginState, Trigger } from '../../core/types.ts';
+import type { PolicyInput } from '../../core/policy.ts';
 import { createClaimContext, pruneExpiredClaims } from '../../core/claims.ts';
 import { closeSync } from 'node:fs';
-import { openLogFd, rotateLogIfNeeded, logToFile } from '../../core/log.ts';
+import { openLogFd, rotateLogIfNeeded } from '../../core/log.ts';
 import { resolveGatherContext } from '../../core/session-context.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -26,6 +28,7 @@ const dispatcher = new PluginDispatcher();
 
 interface PromptMetaState {
   tickerSeen?: Record<string, string>;
+  seenFingerprints?: Record<string, string>;
   sessionStartedAt?: string;
 }
 
@@ -132,7 +135,7 @@ export async function run(event: string): Promise<string> {
 
   // For prompt events, also include cached results from the ticker
   // for interval plugins that have fresh (unseen) cache entries.
-  const tickerResults: GatherResult[] = [];
+  const tickerInputs: PolicyInput[] = [];
   const tickerSeenUpdates: Record<string, string> = {};
   if (event === 'prompt') {
     const cache = await loadTickerCache();
@@ -151,7 +154,13 @@ export async function run(event: string): Promise<string> {
 
       if (gatheredAt) tickerSeenUpdates[pluginName] = gatheredAt;
       if (cached.text) {
-        tickerResults.push({ text: cached.text });
+        tickerInputs.push({
+          pluginName,
+          result: {
+            text: cached.text,
+            updatedAt: gatheredAt || undefined,
+          },
+        });
       }
     }
   }
@@ -172,32 +181,50 @@ export async function run(event: string): Promise<string> {
   // Dispatch all plugins in parallel, each with its own timeout
   const dispatched = await dispatcher.dispatchAll(dispatchEntries);
 
+  const gatheredResults = dispatched
+    .filter((entry): entry is { pluginName: string; result: GatherResult } => !!entry.result)
+    .map(({ pluginName, result }) => ({ pluginName, result }));
+  const gatheredInputs: PolicyInput[] = gatheredResults.map(({ pluginName, result }) => ({
+    pluginName,
+    result,
+  }));
+  const policyInputs = [...gatheredInputs, ...tickerInputs];
+  const previousPolicyMeta = event === 'session-start'
+    ? {}
+    : { seenFingerprints: getPromptMeta(preState).seenFingerprints };
+  const policy = applyInjectionPolicy(policyInputs, {
+    event,
+    previousMeta: previousPolicyMeta,
+    debugReasons: process.env.AGENT_AWARENESS_POLICY_DEBUG === '1',
+  });
+
   // Atomic state update — lock protects against ticker/MCP races
-  const results: GatherResult[] = [];
   const hasPromptTickerUpdates = Object.keys(tickerSeenUpdates).length > 0;
-  const hasGatherResults = dispatched.some(({ result }) => !!result);
+  const hasGatherResults = gatheredResults.length > 0;
+  const hasPolicyResults = policy.results.length > 0;
   const shouldStampSessionStart = event === 'session-start';
-  if (hasGatherResults || hasPromptTickerUpdates || shouldStampSessionStart) {
+  if (hasGatherResults || hasPromptTickerUpdates || hasPolicyResults || shouldStampSessionStart) {
     await withState((state: PluginState) => {
-      for (const { pluginName, result } of dispatched) {
-        if (!result) continue;
-        results.push(result);
+      for (const { pluginName, result } of gatheredResults) {
         state = setPluginState(state, pluginName, result.state);
       }
 
       if (event === 'session-start') {
+        const nowIso = new Date().toISOString();
         state = {
           ...state,
           [PROMPT_META_KEY]: {
             tickerSeen: {},
-            sessionStartedAt: new Date().toISOString(),
-            _updatedAt: new Date().toISOString(),
+            seenFingerprints: policy.meta.seenFingerprints ?? {},
+            sessionStartedAt: nowIso,
+            _updatedAt: nowIso,
           },
         };
       }
 
-      if (event === 'prompt' && hasPromptTickerUpdates) {
+      if (event === 'prompt' && (hasPromptTickerUpdates || hasGatherResults || hasPolicyResults)) {
         const currentMeta = getPromptMeta(state);
+        const nowIso = new Date().toISOString();
         state = {
           ...state,
           [PROMPT_META_KEY]: {
@@ -206,8 +233,9 @@ export async function run(event: string): Promise<string> {
               ...(currentMeta.tickerSeen ?? {}),
               ...tickerSeenUpdates,
             },
+            seenFingerprints: policy.meta.seenFingerprints ?? (currentMeta.seenFingerprints ?? {}),
             sessionStartedAt: currentMeta.sessionStartedAt,
-            _updatedAt: new Date().toISOString(),
+            _updatedAt: nowIso,
           },
         };
       }
@@ -216,10 +244,9 @@ export async function run(event: string): Promise<string> {
     });
   }
 
-  const allResults = [...results, ...tickerResults];
-  if (allResults.length === 0) return '';
+  if (policy.results.length === 0) return '';
 
-  return render(allResults);
+  return render(policy.results);
 }
 
 /**
