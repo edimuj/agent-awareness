@@ -8,6 +8,7 @@ import { applyInjectionPolicy } from '../../core/policy.ts';
 import {
   loadState, getPluginState, setPluginState, withState,
   loadTickerCache, saveTickerCache, writeTickerPid, readTickerPid, clearTickerPid,
+  readTickerOwner, loadChannelSeen,
 } from '../../core/state.ts';
 import { loadPlugins } from '../../core/loader.ts';
 import { parseInterval } from '../../core/types.ts';
@@ -84,8 +85,19 @@ function hasIntervalPlugins(registry: Registry): boolean {
 
 /** Kill any existing ticker, spawn a new one if needed. */
 async function manageTicker(registry: Registry): Promise<void> {
-  // Kill old ticker if running
   const oldPid = await readTickerPid();
+  const owner = await readTickerOwner();
+
+  // If the MCP server owns the ticker and its process is alive, let it be.
+  // The MCP server runs the tick loop internally — no standalone daemon needed.
+  if (oldPid && owner === 'mcp') {
+    try {
+      process.kill(oldPid, 0); // test if alive (signal 0 = no-op)
+      return; // MCP server is handling ticks
+    } catch { /* MCP server died — fall through to spawn standalone */ }
+  }
+
+  // Kill old standalone ticker if running
   if (oldPid) {
     try { process.kill(oldPid, 'SIGTERM'); } catch { /* already dead */ }
     await clearTickerPid();
@@ -93,7 +105,7 @@ async function manageTicker(registry: Registry): Promise<void> {
 
   if (!hasIntervalPlugins(registry)) return;
 
-  // Spawn detached ticker — stderr goes to log file
+  // Spawn detached standalone ticker — stderr goes to log file
   await rotateLogIfNeeded();
   const logFd = openLogFd();
   const child = spawn('node', [TICKER_SCRIPT, 'claude-code'], {
@@ -191,12 +203,20 @@ export async function run(event: string): Promise<string> {
     result,
   }));
   const policyInputs = [...gatheredInputs, ...tickerInputs];
+
+  // Merge channel-seen fingerprints so hooks skip data already pushed via channel
+  const channelSeenFps = event === 'prompt' ? await loadChannelSeen() : {};
   const previousPolicyMeta = event === 'session-start'
     ? {}
-    : { seenFingerprints: getPromptMeta(preState).seenFingerprints };
+    : { seenFingerprints: { ...getPromptMeta(preState).seenFingerprints, ...channelSeenFps } };
+  const policyConfig = registry.getPolicyConfig();
+  const maxChars = event === 'session-start'
+    ? policyConfig.maxCharsSessionStart
+    : policyConfig.maxCharsPrompt;
   const policy = applyInjectionPolicy(policyInputs, {
     event,
     previousMeta: previousPolicyMeta,
+    maxChars,
     debugReasons: process.env.AGENT_AWARENESS_POLICY_DEBUG === '1',
   });
 

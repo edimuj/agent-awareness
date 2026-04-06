@@ -10,9 +10,6 @@ Use one of these scaffolds:
 # npm package (shareable)
 agent-awareness create my-plugin
 
-# npm package with MCP tools
-agent-awareness create my-plugin --mcp
-
 # local-only plugin (no publish/build required)
 agent-awareness create my-plugin --local
 ```
@@ -59,29 +56,6 @@ Prefer low-noise triggers by default:
 3. `change:*` for event-style updates
 
 Avoid broad `prompt` triggers unless absolutely necessary.
-
-## MCP-first architecture (recommended)
-
-Treat MCP as the primary real-time channel.
-
-Default plugin shape:
-
-1. Real-time, one-way signal via MCP-facing plugin behavior (for example: CI failed, new inbound messages, infra alert).
-2. Sparse hook injection as baseline context (session-start + low-frequency change summaries).
-3. Optional interactive MCP tools only when the agent needs pull/action behavior.
-
-Practical split:
-
-1. **One-way event context (default):**
-   - "Build failed for `owner/repo`"
-   - "2 new WhatsApp messages"
-   - "Server memory crossed warning threshold"
-2. **Interactive tools (optional):**
-   - `status` for deeper inspection
-   - `check` to force refresh
-   - `ack`/`mute` style control actions when relevant
-
-Do not use hook output as a high-frequency event firehose. Keep hooks compact and change-driven.
 
 ## 4) Use context for relevance
 
@@ -145,24 +119,7 @@ if (claimed && !claimed.claimed) return null;
 
 This prevents multiple concurrent sessions from taking the same action.
 
-## 9) MCP surface design
-
-If the plugin is event-driven, MCP is still the default integration surface.
-
-Tooling guidance:
-
-1. Start with one-way event-oriented output.
-2. Add tools only when they provide clear operator/agent value.
-3. Keep tool set minimal and predictable.
-
-Common tool patterns:
-
-1. `check` (force refresh now)
-2. `status` (inspect current state)
-3. `list` (enumerate tracked entities)
-4. `ack` (acknowledge/snooze/mute an alert)
-
-## 10) Test before publish
+## 9) Test before publish
 
 Recommended checks:
 
@@ -182,7 +139,7 @@ For Codex integration:
 agent-awareness codex doctor
 ```
 
-## 11) Publish checklist (npm plugins)
+## 10) Publish checklist (npm plugins)
 
 Node 24+ requires shipped JavaScript inside `node_modules`.
 
@@ -212,9 +169,7 @@ npm publish
 
 1. Plugin not loading:
    `agent-awareness doctor` and verify package name pattern `agent-awareness-plugin-*`
-2. MCP surface missing:
-   verify plugin MCP wiring and restart MCP session/client
-3. Repeated output:
+2. Repeated output:
    verify state cursor updates and change detection logic
 4. No interval output:
    verify trigger config and ticker startup in logs

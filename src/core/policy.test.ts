@@ -16,7 +16,7 @@ test('policy injects a fact once and suppresses unchanged repeats by fingerprint
   assert.equal(second.results.length, 0);
 });
 
-test('policy keeps warning/critical in always lane and suppresses info by default', () => {
+test('policy injects both info and warning — plugins decide what to return', () => {
   const out = applyInjectionPolicy(
     [
       { pluginName: 'time-date', result: { text: '10:05 CET Thu 2 Apr 2026' } },
@@ -25,8 +25,7 @@ test('policy keeps warning/critical in always lane and suppresses info by defaul
     { event: 'prompt', previousMeta: {}, now: new Date('2026-04-02T10:05:00.000Z') },
   );
 
-  assert.equal(out.results.length, 1);
-  assert.match(out.results[0]!.text, /WARNING: Swap above 50%/);
+  assert.equal(out.results.length, 2);
 });
 
 test('policy enforces central char budget and prioritizes by severity', () => {

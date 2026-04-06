@@ -1,146 +1,36 @@
 /**
- * Background ticker daemon.
+ * Background ticker daemon (standalone).
  *
- * Spawned at session start when any plugin uses interval:* triggers.
- * Runs gather() on schedule, caches text results for the prompt hook
- * to read. Exits cleanly on SIGTERM.
+ * Spawned at session start when any plugin uses interval:* triggers
+ * and the MCP server is not handling ticks. Runs gather() on schedule,
+ * caches text results for the prompt hook to read. Exits cleanly on SIGTERM.
  *
  * Usage: node src/daemon/ticker.ts <provider>
  */
 
-import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
-import { Registry } from '../core/registry.ts';
-import { PluginDispatcher } from '../core/dispatcher.ts';
-import { loadPlugins } from '../core/loader.ts';
-import { loadState, getPluginState, setPluginState, withState, loadTickerCache, saveTickerCache } from '../core/state.ts';
-import { parseInterval } from '../core/types.ts';
-import type { GatherContext, PluginState, Trigger } from '../core/types.ts';
-import { createClaimContext } from '../core/claims.ts';
-import { resolveGatherContext } from '../core/session-context.ts';
-
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
-const PROJECT_ROOT = join(__dirname, '..', '..');
-const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
+import { setupTicker, tick } from './tick-loop.ts';
+import { writeTickerPid, writeTickerOwner } from '../core/state.ts';
 
 const provider = process.argv[2] ?? 'claude-code';
-let context: GatherContext = { provider };
-
-// Collect interval plugins and their schedules
-interface Schedule {
-  pluginName: string;
-  intervalMs: number;
-  lastFired: number;
-}
-
-const dispatcher = new PluginDispatcher();
-
-async function setup(): Promise<{ registry: Registry; schedules: Schedule[] }> {
-  const registry = new Registry();
-  const { plugins } = await loadPlugins();
-  for (const plugin of plugins) registry.register(plugin);
-  await registry.loadConfig(DEFAULT_CONFIG);
-
-  const schedules: Schedule[] = [];
-
-  for (const plugin of registry.getEnabledPlugins()) {
-    const config = registry.getPluginConfig(plugin.name);
-    const triggers = config?.triggers ?? {};
-
-    // Configure per-plugin dispatcher limits
-    if (config?.timeout || config?.maxQueue) {
-      dispatcher.configure(plugin.name, {
-        timeout: config.timeout as number | undefined,
-        maxQueue: config.maxQueue as number | undefined,
-      });
-    }
-
-    for (const trigger of Object.keys(triggers)) {
-      if (!triggers[trigger]) continue;
-      const ms = parseInterval(trigger);
-      if (ms) {
-        schedules.push({ pluginName: plugin.name, intervalMs: ms, lastFired: 0 });
-      }
-    }
-  }
-
-  return { registry, schedules };
-}
-
-async function tick(registry: Registry, schedules: Schedule[]): Promise<void> {
-  await registry.refreshConfigIfStale();
-
-  const now = Date.now();
-  const due = schedules.filter(s => (now - s.lastFired) >= s.intervalMs);
-  if (due.length === 0) return;
-
-  const preState = await loadState();
-  const cache = await loadTickerCache();
-
-  // Build dispatch entries for all due plugins
-  const entries = due.flatMap(schedule => {
-    const plugin = registry.getPlugin(schedule.pluginName);
-    if (!plugin) return [];
-
-    const config = registry.getPluginConfig(plugin.name);
-    if (!config) return [];
-
-    const triggerKey = Object.keys(config.triggers ?? {}).find(t => {
-      const ms = parseInterval(t);
-      return ms === schedule.intervalMs;
-    }) ?? 'prompt';
-
-    return [{
-      pluginName: plugin.name,
-      schedule,
-      executor: (signal: AbortSignal) => {
-        const prevState = getPluginState(preState, plugin.name);
-        const claims = createClaimContext(plugin.name);
-        return Promise.resolve(plugin.gather(triggerKey as Trigger, config, prevState, { ...context, signal, claims }));
-      },
-    }];
-  });
-
-  // Dispatch all due plugins in parallel
-  const results = await dispatcher.dispatchAll(entries);
-
-  for (const { pluginName, result } of results) {
-    if (result?.text) {
-      cache[pluginName] = { text: result.text, gatheredAt: new Date().toISOString() };
-    }
-    // Mark schedule as fired
-    const schedule = due.find(s => s.pluginName === pluginName);
-    if (schedule) schedule.lastFired = now;
-  }
-
-  // Atomic state update under lock
-  await withState((state: PluginState) => {
-    for (const { pluginName, result } of results) {
-      if (result?.state) {
-        state = setPluginState(state, pluginName, result.state);
-      }
-    }
-    return state;
-  });
-  await saveTickerCache(cache);
-}
 
 async function main(): Promise<void> {
-  context = await resolveGatherContext(provider);
-  const { registry, schedules } = await setup();
+  const setup = await setupTicker(provider);
 
-  if (schedules.length === 0) {
+  if (!setup) {
     process.exit(0); // nothing to tick
   }
 
-  // Tick interval = GCD of all intervals, clamped to min 10s
-  const gcd = schedules.reduce((a, b) => gcdOf(a, b.intervalMs), schedules[0].intervalMs);
-  const tickMs = Math.max(10_000, gcd);
+  const { registry, schedules, tickMs, context } = setup;
+
+  if (process.pid) {
+    await writeTickerPid(process.pid);
+    await writeTickerOwner('daemon');
+  }
 
   // Initial gather
-  await tick(registry, schedules);
+  await tick(registry, schedules, context);
 
-  const timer = setInterval(() => tick(registry, schedules), tickMs);
+  const timer = setInterval(() => tick(registry, schedules, context), tickMs);
 
   // Clean shutdown
   process.on('SIGTERM', () => {
@@ -151,11 +41,6 @@ async function main(): Promise<void> {
     clearInterval(timer);
     process.exit(0);
   });
-}
-
-function gcdOf(a: number, b: number): number {
-  while (b) { [a, b] = [b, a % b]; }
-  return a;
 }
 
 main();

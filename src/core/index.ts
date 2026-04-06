@@ -1,9 +1,10 @@
 export { Registry } from './registry.ts';
+export type { PolicyConfig } from './registry.ts';
 export { PluginDispatcher } from './dispatcher.ts';
 export type { DispatcherOptions, PluginLimits, Executor } from './dispatcher.ts';
 export { render } from './renderer.ts';
-export { STATE_DIR, loadState, saveState, getPluginState, setPluginState, withState, loadTickerCache, saveTickerCache, writeTickerPid, readTickerPid, clearTickerPid } from './state.ts';
-export type { TickerCache } from './state.ts';
+export { STATE_DIR, loadState, saveState, getPluginState, setPluginState, withState, loadTickerCache, saveTickerCache, writeTickerPid, readTickerPid, clearTickerPid, writeTickerOwner, readTickerOwner, clearTickerOwner, loadChannelSeen, saveChannelSeen, clearChannelSeen } from './state.ts';
+export type { TickerCache, TickerOwner } from './state.ts';
 export { withStateLock } from './lock.ts';
 export { createClaimContext, pruneExpiredClaims, CLAIMS_DIR } from './claims.ts';
 export type { ClaimContext, ClaimInfo, ClaimResult } from './claims.ts';

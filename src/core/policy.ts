@@ -179,8 +179,8 @@ function collapseLines(lines: string[], severity: AwarenessSeverity): string[] {
   return [header, ...signalLines].slice(0, 4);
 }
 
-function defaultChannelForSeverity(severity: AwarenessSeverity): AwarenessChannel {
-  return severity === 'info' ? 'on-demand' : 'always';
+function defaultChannelForSeverity(_severity: AwarenessSeverity): AwarenessChannel {
+  return 'always';
 }
 
 function severityRank(severity: AwarenessSeverity): number {

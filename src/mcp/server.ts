@@ -3,10 +3,9 @@
 /**
  * agent-awareness MCP server.
  *
- * Stdio transport — designed for Claude Code integration.
- * Auto-discovers plugins with mcp.tools defined, registers them as
- * MCP tools with scoped names (awareness_<plugin>_<tool>), and routes
- * calls through the PluginDispatcher for timeout + queue protection.
+ * Stdio transport — one-way context injection into Claude Code / Codex sessions.
+ * Declares claude/channel capability for real-time push when enabled.
+ * Runs the ticker loop internally — no separate daemon needed.
  *
  * Uses the low-level Server class (not McpServer) to support plain
  * JSON Schema input definitions without requiring Zod.
@@ -25,28 +24,27 @@ import {
   ListResourceTemplatesRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import { execFileSync } from 'node:child_process';
-import { readdir, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { Registry } from '../core/registry.ts';
-import { PluginDispatcher } from '../core/dispatcher.ts';
 import { loadPlugins } from '../core/loader.ts';
-import { loadState, getPluginState, setPluginState, withState, STATE_DIR } from '../core/state.ts';
-import type { McpToolDef, PluginState } from '../core/types.ts';
-import { createClaimContext } from '../core/claims.ts';
+import { STATE_DIR, writeTickerPid, writeTickerOwner, clearTickerPid, clearTickerOwner, saveChannelSeen, clearChannelSeen, loadState } from '../core/state.ts';
+import { setupTicker, tick } from '../daemon/tick-loop.ts';
+import { createHash } from 'node:crypto';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
 const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
 
-const dispatcher = new PluginDispatcher();
-
-/** Scope a tool name: awareness_<plugin>_<tool> */
-function scopedName(pluginName: string, toolName: string): string {
-  return `awareness_${pluginName.replace(/-/g, '_')}_${toolName}`;
-}
+const CHANNEL_INSTRUCTIONS = [
+  'Context updates from agent-awareness plugins arrive as <channel source="agent-awareness" plugin="..." severity="...">.',
+  'These are one-way status updates — no reply expected.',
+  'React to warnings and critical alerts proactively.',
+  'Info-level updates provide ambient awareness context.',
+].join(' ');
 
 async function main(): Promise<void> {
-  // Load plugins and config
+  // Load plugins and config (needed for doctor diagnostic + ticker)
   const registry = new Registry();
   const { plugins, errors } = await loadPlugins();
 
@@ -59,50 +57,17 @@ async function main(): Promise<void> {
 
   await registry.loadConfig(DEFAULT_CONFIG);
 
-  // Configure per-plugin dispatcher limits
-  for (const plugin of registry.getEnabledPlugins()) {
-    const config = registry.getPluginConfig(plugin.name);
-    if (config?.timeout || config?.maxQueue) {
-      dispatcher.configure(plugin.name, {
-        timeout: config.timeout as number | undefined,
-        maxQueue: config.maxQueue as number | undefined,
-      });
-    }
-  }
-
-  // Collect all MCP tools from enabled plugins
-  const toolMap = new Map<string, { pluginName: string; tool: McpToolDef }>();
-
-  for (const plugin of registry.getEnabledPlugins()) {
-    if (!plugin.mcp?.tools?.length) continue;
-
-    for (const tool of plugin.mcp.tools) {
-      const scoped = scopedName(plugin.name, tool.name);
-      toolMap.set(scoped, { pluginName: plugin.name, tool });
-    }
-  }
-
-  // Built-in doctor tool — always available
-  toolMap.set('awareness_doctor', {
-    pluginName: '_builtin',
-    tool: {
-      name: 'doctor',
-      description: 'Diagnose agent-awareness health — shows loaded/failed plugins, config paths, log location, and actionable hints',
-      inputSchema: { type: 'object' as const, properties: {} },
-      async handler() {
-        return { text: await runDoctor(registry, errors), state: {} };
-      },
-    },
-  });
-
-  if (toolMap.size <= 1) {
-    console.error('[agent-awareness-mcp] No plugins with MCP tools found.');
-  }
-
-  // Create low-level server with tools + resources capabilities
+  // Create server with tools, resources, and channel capabilities
   const server = new Server(
     { name: 'agent-awareness', version: '0.1.0' },
-    { capabilities: { tools: {}, resources: {} } },
+    {
+      capabilities: {
+        tools: {},
+        resources: {},
+        experimental: { 'claude/channel': {} },
+      },
+      instructions: CHANNEL_INSTRUCTIONS,
+    },
   );
 
   // Advertise empty resource lists so MCP clients don't fail discovery on "Method not found".
@@ -114,56 +79,112 @@ async function main(): Promise<void> {
     resourceTemplates: [],
   }));
 
-  // Handle tools/list — return all registered tools with JSON Schema
+  // Only built-in doctor tool — plugins do NOT register tools here
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [...toolMap.entries()].map(([scoped, { tool }]) => ({
-      name: scoped,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-    })),
+    tools: [{
+      name: 'awareness_doctor',
+      description: 'Diagnose agent-awareness health — shows loaded/failed plugins, config paths, log location, and actionable hints',
+      inputSchema: { type: 'object' as const, properties: {} },
+    }],
   }));
 
-  // Handle tools/call — route through dispatcher
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const { name, arguments: args } = request.params;
-    const entry = toolMap.get(name);
-
-    if (!entry) {
+    if (request.params.name === 'awareness_doctor') {
       return {
-        content: [{ type: 'text' as const, text: `Unknown tool: ${name}` }],
-        isError: true,
+        content: [{ type: 'text' as const, text: await runDoctor(registry, errors) }],
       };
     }
-
-    const { pluginName, tool } = entry;
-
-    await registry.refreshConfigIfStale();
-    const config = registry.getPluginConfig(pluginName)!;
-    const preState = await loadState();
-    const prevState = getPluginState(preState, pluginName);
-
-    const result = await dispatcher.dispatch(pluginName, (signal) =>
-      tool.handler(args ?? {}, config, signal, prevState),
-    );
-
-    // Atomic state update under lock
-    if (result?.state) {
-      await withState((state: PluginState) =>
-        setPluginState(state, pluginName, result.state),
-      );
-    }
-
     return {
-      content: [{
-        type: 'text' as const,
-        text: result?.text ?? `[${pluginName}] No response (timeout or error)`,
-      }],
+      content: [{ type: 'text' as const, text: `Unknown tool: ${request.params.name}` }],
+      isError: true,
     };
   });
 
   // Start stdio transport
   const transport = new StdioServerTransport();
   await server.connect(transport);
+
+  // Start internal ticker after MCP connection is established
+  await startInternalTicker(server);
+
+  // Clean shutdown
+  const cleanup = async () => {
+    if (tickerTimer) clearInterval(tickerTimer);
+    await clearTickerPid();
+    await clearTickerOwner();
+    process.exit(0);
+  };
+  process.on('SIGTERM', cleanup);
+  process.on('SIGINT', cleanup);
+}
+
+let tickerTimer: ReturnType<typeof setInterval> | null = null;
+
+async function startInternalTicker(server: Server): Promise<void> {
+  const setup = await setupTicker('claude-code');
+  if (!setup) return; // no interval plugins
+
+  const { registry, schedules, tickMs, context } = setup;
+
+  // Register as ticker owner
+  if (process.pid) {
+    await writeTickerPid(process.pid);
+    await writeTickerOwner('mcp');
+  }
+
+  // Channel deduplication — tracks pushed fingerprints in memory + on disk
+  const channelSeen = new Map<string, string>();
+  let lastSessionStartedAt = '';
+
+  const onResult = async (pluginName: string, text: string) => {
+    const fingerprint = hashFingerprint(`${pluginName}:${text}`);
+
+    // Deduplicate: skip if same text was already pushed this session
+    if (channelSeen.get(fingerprint) === text) return;
+    channelSeen.set(fingerprint, text);
+
+    // Push via channel (silently ignored if not active)
+    server.notification({
+      method: 'notifications/claude/channel',
+      params: {
+        content: text,
+        meta: { plugin: pluginName.replace(/-/g, '_'), source: 'agent_awareness' },
+      },
+    }).catch(() => { /* channel not active or disconnected */ });
+
+    // Persist fingerprints so prompt hook can skip already-pushed data
+    const diskSeen = Object.fromEntries(channelSeen);
+    saveChannelSeen(diskSeen).catch(() => {});
+  };
+
+  // Detect session resets: clear channel-seen when sessionStartedAt changes
+  const checkSessionReset = async () => {
+    try {
+      const state = await loadState();
+      const meta = state.__agent_awareness_prompt_meta_claude_code as
+        { sessionStartedAt?: string } | undefined;
+      const current = meta?.sessionStartedAt ?? '';
+      if (lastSessionStartedAt && current !== lastSessionStartedAt) {
+        channelSeen.clear();
+        await clearChannelSeen();
+      }
+      lastSessionStartedAt = current;
+    } catch { /* state read failed — skip */ }
+  };
+
+  // Initial gather
+  await checkSessionReset();
+  await tick(registry, schedules, context, { onResult });
+
+  // Periodic tick with session reset detection
+  tickerTimer = setInterval(async () => {
+    await checkSessionReset();
+    await tick(registry, schedules, context, { onResult });
+  }, tickMs);
+}
+
+function hashFingerprint(raw: string): string {
+  return createHash('sha1').update(raw).digest('hex');
 }
 
 /** Generate doctor report as text (for MCP tool output). */
@@ -200,10 +221,11 @@ async function runDoctor(
   const enabled = registry.getEnabledPlugins();
   lines.push('', `Loaded (${enabled.length}):`);
   for (const plugin of enabled) {
-    const mcpCount = plugin.mcp?.tools?.length ?? 0;
-    const mcpStr = mcpCount > 0 ? ` [${mcpCount} MCP]` : '';
-    lines.push(`  OK  ${plugin.name}${mcpStr}`);
+    lines.push(`  OK  ${plugin.name}`);
   }
+
+  // Ticker status
+  lines.push('', `Ticker: ${tickerTimer ? 'running (internal)' : 'not started'}`);
 
   // Errors
   const realErrors = loadErrors.filter(e => !e.source.includes('.test.'));

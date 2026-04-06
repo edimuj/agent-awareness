@@ -1,4 +1,8 @@
 {
+  "policy": {
+    "maxCharsSessionStart": 800,
+    "maxCharsPrompt": 500
+  },
   "plugins": {
     "time-date": {
       "enabled": true,

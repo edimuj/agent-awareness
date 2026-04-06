@@ -8,8 +8,8 @@ version: 0.1.0
 
 ## Plugin Architecture
 
-agent-awareness plugins are TypeScript modules that export a default `AwarenessPlugin` object. Plugins provide contextual data to AI agents via `gather()` and optional MCP tools for real-time interaction.
-ok 
+agent-awareness plugins are TypeScript modules that export a default `AwarenessPlugin` object. Plugins provide contextual data to AI agents via `gather()` — one-way context injection into agent sessions.
+
 **Plugin sources (discovery order, later overrides earlier):**
 1. **Built-in** — `src/plugins/` inside agent-awareness
 2. **Global npm** — `npm root -g` directory, packages matching `agent-awareness-plugin-*`
@@ -23,8 +23,6 @@ ok
 ```bash
 # npm package (for publishing)
 npx agent-awareness create my-plugin
-npx agent-awareness create my-plugin --mcp    # with MCP tools
-
 # local-only (no npm needed)
 npx agent-awareness create my-secret --local
 ```
@@ -111,18 +109,6 @@ export default {
     // Return null to suppress output (nothing to report)
   },
 
-  // Optional MCP tools for real-time interaction
-  mcp: {
-    tools: [{
-      name: 'status',
-      description: 'Get current status',
-      inputSchema: { type: 'object', properties: {} },
-      async handler(params, config, signal, prevState) {
-        return { text: 'result', state: {} };
-      },
-    }],
-  },
-
   // Optional lifecycle hooks
   // async onInstall() {},
   // async onStart() {},
@@ -200,7 +186,7 @@ After publishing, users install with: `npm install -g agent-awareness-plugin-my-
 # CLI
 npx agent-awareness doctor    # shows loaded/failed plugins, config, log location
 
-# MCP tool (available to agents)
+# MCP tool (diagnostic, always available to agents)
 awareness_doctor              # same info, available as MCP tool
 ```
 

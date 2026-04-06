@@ -8,6 +8,7 @@ import { applyInjectionPolicy } from '../../core/policy.ts';
 import {
   loadState, getPluginState, setPluginState, withState,
   loadTickerCache, saveTickerCache, writeTickerPid, readTickerPid, clearTickerPid,
+  loadChannelSeen,
 } from '../../core/state.ts';
 import { loadPlugins } from '../../core/loader.ts';
 import { parseInterval } from '../../core/types.ts';
@@ -194,12 +195,20 @@ export async function run(event: string): Promise<string> {
     result,
   }));
   const policyInputs = [...gatheredInputs, ...tickerInputs];
+
+  // Merge channel-seen fingerprints so hooks skip data already pushed via channel
+  const channelSeenFps = event === 'prompt' ? await loadChannelSeen() : {};
   const previousPolicyMeta = event === 'session-start'
     ? {}
-    : { seenFingerprints: getPromptMeta(preState).seenFingerprints };
+    : { seenFingerprints: { ...getPromptMeta(preState).seenFingerprints, ...channelSeenFps } };
+  const policyConfig = registry.getPolicyConfig();
+  const maxChars = event === 'session-start'
+    ? policyConfig.maxCharsSessionStart
+    : policyConfig.maxCharsPrompt;
   const policy = applyInjectionPolicy(policyInputs, {
     event,
     previousMeta: previousPolicyMeta,
+    maxChars,
     debugReasons: process.env.AGENT_AWARENESS_POLICY_DEBUG === '1',
   });
 

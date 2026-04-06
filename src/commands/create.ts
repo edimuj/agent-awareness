@@ -7,7 +7,6 @@ const LOCAL_PLUGIN_DIR = join(homedir(), '.config', 'agent-awareness', 'plugins'
 interface CreateOptions {
   name: string;
   local: boolean;
-  mcp: boolean;
   description?: string;
   triggers: string[];
 }
@@ -61,7 +60,7 @@ async function createNpm(opts: CreateOptions): Promise<void> {
       typecheck: 'tsc --noEmit',
       prepublishOnly: 'npm run build',
     },
-    keywords: ['agent-awareness-plugin', 'ai', 'agent', 'awareness', 'mcp'],
+    keywords: ['agent-awareness-plugin', 'ai', 'agent', 'awareness'],
     peerDependencies: { 'agent-awareness': '>=0.4.0' },
     devDependencies: { 'agent-awareness': '^0.4.0', typescript: '^5.8', '@types/node': '^25.5.0' },
     license: 'MIT',
@@ -127,43 +126,6 @@ function generatePluginSource(opts: CreateOptions): string {
     .join('\n');
   const desc = opts.description ?? `TODO: describe what ${opts.name} provides`;
 
-  const mcpBlock = opts.mcp ? `
-
-  // Optional interactive MCP tools.
-  // MCP-first pattern: emit one-way real-time context from gather(), add tools only when useful.
-  // Tool names are auto-scoped: "${opts.name}" + "status" → "awareness_${opts.name.replace(/-/g, '_')}_status"
-  // One-command Codex setup:            agent-awareness codex setup
-  // Install hooks in Codex only:        agent-awareness codex hooks install --global
-  // Install MCP server in Claude Code:  agent-awareness mcp install
-  // Install MCP server in Codex only:   agent-awareness codex mcp install
-  mcp: {
-    tools: [
-      {
-        name: 'status',
-        description: 'Get current ${opts.name} status',
-        inputSchema: {
-          type: 'object' as const,
-          properties: {
-            verbose: { type: 'boolean', description: 'Include detailed info' },
-          },
-        },
-        async handler(
-          params: Record<string, unknown>,
-          config: PluginConfig,
-          signal: AbortSignal,
-          prevState: Record<string, unknown> | null,
-        ) {
-          // TODO: return real-time data
-          return {
-            text: '${opts.name} status: replace with real data',
-            state: prevState ?? {},
-          };
-        },
-      },
-    ],
-  },
-` : '';
-
   return `import type { AwarenessPlugin, GatherContext, PluginConfig, Trigger } from 'agent-awareness';
 
 export default {
@@ -184,14 +146,9 @@ ${triggerDefaults}
   // onStop() { /* session end: graceful shutdown */ },
 
   gather(trigger: Trigger, config: PluginConfig, prevState, context: GatherContext) {
-    // MCP-first recommendation:
-    // 1) gather() emits one-way, change-driven context
-    // 2) optional mcp.tools handle on-demand query/action flows
-    //
     // Useful context fields:
     // context.provider        — which agent ('claude-code', 'codex', etc.)
     // context.sessionRepo     — active repo (owner/repo) when detectable
-    // context.sessionRepoSource — how sessionRepo was inferred
     // context.cwd / context.gitRoot — execution paths when available
     // context.signal          — AbortSignal for cancellation in slow I/O
     // context.log             — structured logging ({ warn, error })
@@ -200,7 +157,7 @@ ${triggerDefaults}
     // TODO: gather awareness data and only emit when something changed/relevant.
     // Return null to stay silent when there is no actionable update.
     return null;
-  },${mcpBlock}
+  },
 } satisfies AwarenessPlugin;
 `;
 }
@@ -208,22 +165,6 @@ ${triggerDefaults}
 function generateReadme(opts: CreateOptions): string {
   const dirName = `agent-awareness-plugin-${opts.name}`;
   const desc = opts.description ?? `Agent awareness plugin: ${opts.name}`;
-
-  const mcpSection = opts.mcp ? `
-## MCP (real-time)
-
-This plugin includes MCP tools for real-time interaction. To enable:
-
-\`\`\`bash
-agent-awareness codex setup          # add MCP + optional hooks + smoke test
-agent-awareness codex hooks install --global  # add Codex hooks only (all projects)
-agent-awareness codex hooks install --project # optional project-scoped hooks file (.codex/hooks.json)
-agent-awareness mcp install         # add MCP server to Claude Code
-agent-awareness codex mcp install   # add MCP server to Codex
-\`\`\`
-
-The MCP server auto-discovers plugins with tools.
-` : '';
 
   return `# ${dirName}
 
@@ -252,7 +193,7 @@ Override defaults in \`~/.config/agent-awareness/plugins.d/${opts.name}.json\`:
   "enabled": true
 }
 \`\`\`
-${mcpSection}
+
 ## License
 
 MIT

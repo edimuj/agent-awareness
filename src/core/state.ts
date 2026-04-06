@@ -8,6 +8,8 @@ export const STATE_DIR = join(homedir(), '.cache', 'agent-awareness');
 const STATE_FILE = join(STATE_DIR, 'state.json');
 const TICKER_CACHE = join(STATE_DIR, 'ticker-cache.json');
 const PID_FILE = join(STATE_DIR, 'ticker.pid');
+const TICKER_OWNER_FILE = join(STATE_DIR, 'ticker-owner');
+const CHANNEL_SEEN_FILE = join(STATE_DIR, 'channel-seen.json');
 
 export async function loadState(): Promise<PluginState> {
   try {
@@ -80,5 +82,46 @@ export async function readTickerPid(): Promise<number | null> {
 
 export async function clearTickerPid(): Promise<void> {
   try { await unlink(PID_FILE); }
+  catch { /* already gone */ }
+}
+
+/** Who owns the ticker: 'mcp' (MCP server running it) or 'daemon' (standalone). */
+export type TickerOwner = 'mcp' | 'daemon';
+
+export async function writeTickerOwner(owner: TickerOwner): Promise<void> {
+  await mkdir(STATE_DIR, { recursive: true });
+  await writeFile(TICKER_OWNER_FILE, owner + '\n');
+}
+
+export async function readTickerOwner(): Promise<TickerOwner | null> {
+  try {
+    const raw = (await readFile(TICKER_OWNER_FILE, 'utf8')).trim();
+    return raw === 'mcp' || raw === 'daemon' ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearTickerOwner(): Promise<void> {
+  try { await unlink(TICKER_OWNER_FILE); }
+  catch { /* already gone */ }
+}
+
+/** Fingerprints already pushed via channel — prompt hook skips these to avoid double injection. */
+export async function loadChannelSeen(): Promise<Record<string, string>> {
+  try {
+    return JSON.parse(await readFile(CHANNEL_SEEN_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+export async function saveChannelSeen(seen: Record<string, string>): Promise<void> {
+  await mkdir(STATE_DIR, { recursive: true });
+  await writeFile(CHANNEL_SEEN_FILE, JSON.stringify(seen) + '\n');
+}
+
+export async function clearChannelSeen(): Promise<void> {
+  try { await unlink(CHANNEL_SEEN_FILE); }
   catch { /* already gone */ }
 }

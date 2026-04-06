@@ -4,7 +4,13 @@ import { homedir } from 'node:os';
 import type { AwarenessPlugin, PluginConfig, PluginState } from './types.ts';
 import { parseInterval } from './types.ts';
 
-const USER_PLUGINS_D = join(homedir(), '.config', 'agent-awareness', 'plugins.d');
+const USER_CONFIG_DIR = join(homedir(), '.config', 'agent-awareness');
+const USER_PLUGINS_D = join(USER_CONFIG_DIR, 'plugins.d');
+
+export interface PolicyConfig {
+  maxCharsSessionStart?: number;
+  maxCharsPrompt?: number;
+}
 
 /**
  * Config resolution order per plugin:
@@ -26,6 +32,7 @@ export class Registry {
   #plugins = new Map<string, AwarenessPlugin>();
   #packageDefaults: Record<string, PluginConfig> = {};
   #userPluginConfigs: Record<string, PluginConfig> = {};
+  #policyConfig: PolicyConfig = {};
   #defaultConfigPath: string | null = null;
   #lastConfigLoad = 0;
   #configTtl = 60_000; // reload config every 60s in long-running processes
@@ -38,13 +45,19 @@ export class Registry {
     this.#defaultConfigPath = defaultConfigPath;
 
     // 1. Package defaults (config/default.json)
+    let packagePolicy: PolicyConfig = {};
     try {
       const raw = JSON.parse(await readFile(defaultConfigPath, 'utf8'));
       this.#packageDefaults = raw.plugins ?? {};
+      packagePolicy = raw.policy ?? {};
     } catch { /* no defaults file */ }
 
     // 2. Per-plugin config files from user global + rig override
     this.#userPluginConfigs = await loadPluginConfigs();
+
+    // 3. Policy config: package defaults + user override
+    const userPolicy = await loadPolicyConfig();
+    this.#policyConfig = { ...packagePolicy, ...userPolicy };
     this.#lastConfigLoad = Date.now();
   }
 
@@ -133,6 +146,10 @@ export class Registry {
     return results;
   }
 
+  getPolicyConfig(): PolicyConfig {
+    return this.#policyConfig;
+  }
+
   getPlugin(name: string): AwarenessPlugin | undefined {
     return this.#plugins.get(name);
   }
@@ -194,6 +211,14 @@ async function loadPluginConfigs(): Promise<Record<string, PluginConfig>> {
   }
 
   return configs;
+}
+
+async function loadPolicyConfig(): Promise<PolicyConfig> {
+  // User: ~/.config/agent-awareness/policy.json
+  const userPath = join(USER_CONFIG_DIR, 'policy.json');
+  try {
+    return JSON.parse(await readFile(userPath, 'utf8'));
+  } catch { return {}; }
 }
 
 async function loadPluginDir(dir: string, configs: Record<string, PluginConfig>): Promise<void> {

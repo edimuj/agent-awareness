@@ -31,7 +31,6 @@ Options:
 
 Create options:
   --local           Create as a local plugin (~/.config/agent-awareness/plugins/)
-  --mcp             Include MCP tool scaffolding for real-time interaction
   --description     Plugin description (default: prompted)
   --triggers        Comma-separated triggers (default: session-start,interval:10m)
 `;
@@ -41,7 +40,6 @@ const { positionals, values } = parseArgs({
   options: {
     help: { type: 'boolean', short: 'h', default: false },
     local: { type: 'boolean', default: false },
-    mcp: { type: 'boolean', default: false },
     global: { type: 'boolean', default: false },
     project: { type: 'boolean', default: false },
     description: { type: 'string' },
@@ -75,7 +73,6 @@ switch (command) {
     await create({
       name,
       local: values.local ?? false,
-      mcp: values.mcp ?? false,
       description: values.description,
       triggers: (values.triggers ?? 'session-start,interval:10m').split(',').map(t => t.trim()),
     });
