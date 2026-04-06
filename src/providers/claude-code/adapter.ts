@@ -14,16 +14,16 @@ import { parseInterval } from '../../core/types.ts';
 import type { GatherContext, GatherResult, PluginState, Trigger } from '../../core/types.ts';
 import type { PolicyInput } from '../../core/policy.ts';
 import { createClaimContext, pruneExpiredClaims } from '../../core/claims.ts';
-import { closeSync } from 'node:fs';
+import { closeSync, existsSync } from 'node:fs';
 import { openLogFd, rotateLogIfNeeded } from '../../core/log.ts';
 import { resolveGatherContext } from '../../core/session-context.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
-const TICKER_SCRIPT = __dirname.includes('/dist/')
-  ? join(PROJECT_ROOT, 'dist', 'daemon', 'ticker.js')
-  : join(PROJECT_ROOT, 'src', 'daemon', 'ticker.ts');
+const COMPILED_TICKER = join(PROJECT_ROOT, 'dist', 'daemon', 'ticker.js');
+const SOURCE_TICKER = join(PROJECT_ROOT, 'src', 'daemon', 'ticker.ts');
+const TICKER_SCRIPT = existsSync(COMPILED_TICKER) ? COMPILED_TICKER : SOURCE_TICKER;
 const PROMPT_META_KEY = '__agent_awareness_prompt_meta_claude_code';
 
 const dispatcher = new PluginDispatcher();
