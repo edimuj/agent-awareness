@@ -21,7 +21,9 @@ import { resolveGatherContext } from '../../core/session-context.ts';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
-const TICKER_SCRIPT = join(PROJECT_ROOT, 'src', 'daemon', 'ticker.ts');
+const TICKER_SCRIPT = __dirname.includes('/dist/')
+  ? join(PROJECT_ROOT, 'dist', 'daemon', 'ticker.js')
+  : join(PROJECT_ROOT, 'src', 'daemon', 'ticker.ts');
 const PROMPT_META_KEY = '__agent_awareness_prompt_meta_codex';
 
 const dispatcher = new PluginDispatcher();
