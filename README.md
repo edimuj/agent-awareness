@@ -94,9 +94,6 @@ Codex plugin manifest files are included:
 # npm package (share with the world)
 npx agent-awareness create weather-alerts
 
-# With MCP real-time tools (agent can query on demand)
-npx agent-awareness create home-sensors --mcp
-
 # Local plugin (just for you)
 npx agent-awareness create my-secret-sauce --local
 ```
@@ -194,51 +191,31 @@ Config layers deep-merge: plugin defaults → package defaults → user global �
 
 Set `AGENT_AWARENESS_CONFIG` for per-project or per-rig overrides.
 
-## MCP tools — real-time interaction
+## Three ways to run
 
-Trigger-based injection covers most cases. But sometimes the agent needs to _do_ something — start a timer, acknowledge an alert, query a sensor on demand.
+agent-awareness is designed as a **progressive enhancement** — each tier adds capability without breaking the previous one.
 
-Plugins opt into MCP by defining tools:
+| Tier | What you get | Setup |
+|------|-------------|-------|
+| **Hooks only** | Context injection at session start + on each prompt. Background ticker polls interval plugins, injects on next prompt. | Default. No MCP needed. |
+| **Hooks + MCP** | Same as above, plus `awareness_doctor` diagnostic tool. MCP server runs the ticker internally. | MCP auto-configured via plugin. |
+| **Hooks + MCP + Channel** | Real-time push between prompts. CI fails → agent knows immediately, no prompt needed. | Launch with `--dangerously-load-development-channels server:agent-awareness` |
 
-```typescript
-export default {
-  name: 'home-sensors',
-  // ... gather(), triggers, etc.
-
-  mcp: {
-    tools: [{
-      name: 'temperature',
-      description: 'Get current temperature from a home sensor',
-      inputSchema: { type: 'object', properties: { room: { type: 'string' } } },
-      async handler(params, config, signal, prevState) {
-        const temp = await fetchSensor(params.room as string, { signal });
-        return { text: `${params.room}: ${temp}°C` };
-      },
-    }],
-  },
-} satisfies AwarenessPlugin;
-```
-
-Tool names auto-scope: `home-sensors` + `temperature` → `awareness_home_sensors_temperature`.
-
-The MCP server is optional — plugins work fine without it.
+Channels use Claude Code's experimental `claude/channel` capability. The MCP server always declares it — if Claude Code wasn't launched with the channel flag, notifications are silently dropped and you get tier 2 behavior. Zero config.
 
 ```bash
-agent-awareness mcp install          # add to Claude Code
-agent-awareness mcp status           # check Claude Code config
-agent-awareness codex setup          # one-command Codex setup (MCP + optional hooks + smoke)
-agent-awareness codex hooks install --global   # install global Codex hooks (~/.codex/hooks.json)
-agent-awareness codex hooks install --project  # install project hooks (./.codex/hooks.json)
-agent-awareness codex doctor         # diagnose Codex integration health
-agent-awareness codex hooks status --global    # inspect global Codex hooks status
-agent-awareness codex hooks status --project   # inspect project hooks status
-agent-awareness codex mcp status     # inspect Codex MCP status
+# Tier 3: launch with channel support
+claude --dangerously-load-development-channels server:agent-awareness
+
+# Or with claude-rig (set globally for all rigs)
+claude-rig set-args --dangerously-skip-permissions --dangerously-load-development-channels server:agent-awareness
 ```
 
-Codex integration model:
-- MCP server config is global (`~/.codex/config.toml`) and shared across projects.
-- Hook config defaults to global (`~/.codex/hooks.json`) so all projects benefit.
-- `--project` is available when you want a repo-local hooks file (`./.codex/hooks.json`).
+Codex integration:
+```bash
+agent-awareness codex setup          # one-command setup (MCP + hooks + smoke test)
+agent-awareness codex doctor         # diagnose Codex integration health
+```
 
 ## Lifecycle hooks
 
@@ -333,7 +310,6 @@ Built-in: **Claude Code**, **Codex**. Adding your own is ~60 lines.
 
 ```bash
 agent-awareness create <name>          # scaffold npm plugin
-agent-awareness create <name> --mcp    # scaffold with MCP tools
 agent-awareness create <name> --local  # scaffold local plugin
 agent-awareness doctor                 # diagnose loading, config, logs
 agent-awareness list                   # show plugins + status
