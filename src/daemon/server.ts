@@ -241,8 +241,8 @@ async function startTicker(): Promise<void> {
     });
   };
 
-  // Initial tick
-  await tick(tickerRegistry, schedules, context, { onResult });
+  // No initial tick — sessions get initial data from session-start hook.
+  // First tick fires after tickMs, when SSE clients are connected.
 
   // Periodic ticks
   tickerTimer = setInterval(async () => {
@@ -333,7 +333,7 @@ async function writePidFile(port: number): Promise<void> {
     host: '127.0.0.1',
     startedAt: new Date().toISOString(),
     serverScript: fileURLToPath(import.meta.url),
-    version: '0.6.2',
+    version: '0.6.3',
   };
   await writeFile(PID_FILE, JSON.stringify(data, null, 2) + '\n');
 }
