@@ -88,13 +88,25 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
         'Cache-Control': 'no-cache',
         Connection: 'keep-alive',
       });
+
+      // Keep SSE socket alive indefinitely
+      req.socket?.setKeepAlive(true, 30_000);
+      req.socket?.setTimeout(0);
+      res.socket?.setTimeout(0);
+
       res.write(': connected\n\n');
+
+      // Send periodic heartbeat to prevent connection reaping
+      const heartbeat = setInterval(() => {
+        try { res.write(': heartbeat\n\n'); } catch { clearInterval(heartbeat); }
+      }, 30_000);
 
       const client: SSEClient = { res, sessionId };
       sseClients.add(client);
       sessions.add(sessionId);
 
       req.on('close', () => {
+        clearInterval(heartbeat);
         sseClients.delete(client);
         sessions.delete(sessionId);
       });
@@ -321,7 +333,7 @@ async function writePidFile(port: number): Promise<void> {
     host: '127.0.0.1',
     startedAt: new Date().toISOString(),
     serverScript: fileURLToPath(import.meta.url),
-    version: '0.6.1',
+    version: '0.6.2',
   };
   await writeFile(PID_FILE, JSON.stringify(data, null, 2) + '\n');
 }
@@ -365,6 +377,8 @@ async function main(): Promise<void> {
   }
 
   server = createServer(handleRequest);
+  server.keepAliveTimeout = 0; // SSE connections must not be reaped
+  server.headersTimeout = 0;
 
   await new Promise<void>((resolve, reject) => {
     server!.listen(0, '127.0.0.1', () => resolve());

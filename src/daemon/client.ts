@@ -185,8 +185,12 @@ export async function connectSSE(
       port: info.port,
       path: `/events?sessionId=${encodeURIComponent(sessionId)}`,
       method: 'GET',
-      headers: { Accept: 'text/event-stream' },
+      timeout: 0, // no timeout for SSE
+      headers: { Accept: 'text/event-stream', Connection: 'keep-alive' },
     }, res => {
+      // Prevent Node from closing the socket due to inactivity
+      res.socket?.setKeepAlive(true, 30_000);
+      res.socket?.setTimeout(0);
       if (res.statusCode === 200) {
         resolve(res);
       } else {
