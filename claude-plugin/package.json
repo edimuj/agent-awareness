@@ -1,8 +1,25 @@
 {
   "name": "agent-awareness-claude-plugin",
   "version": "0.5.0",
-  "private": true,
+  "description": "Claude Code plugin for agent-awareness — modular awareness plugins for AI coding agents",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edimuj/agent-awareness.git",
+    "directory": "claude-plugin"
+  },
+  "files": [
+    ".claude-plugin/",
+    "hooks/",
+    "skills/",
+    "dist/",
+    ".mcp.json",
+    "settings.json"
+  ],
+  "scripts": {
+    "prepublishOnly": "cd .. && npm run build"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.28.0"
   }
