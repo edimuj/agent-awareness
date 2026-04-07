@@ -39,12 +39,10 @@
     "src/",
     "hooks/",
     "config/",
-    "skills/",
+    "claude-plugin/",
     ".claude-plugin/",
     ".codex-plugin/",
-    ".mcp.json",
     ".codex-mcp.json",
-    "hooks.json",
     "docs/",
     "README.md"
   ],

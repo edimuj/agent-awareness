@@ -42,10 +42,18 @@ Plugins are provider-agnostic — they receive `GatherContext` and don't know wh
 - `src/mcp/server.ts` — MCP server with internal ticker (Tier 2)
 - `src/daemon/tick-loop.ts` — Shared ticker logic used by MCP server
 - `src/commands/` — CLI commands (create, doctor, list, mcp)
-- `hooks/` — Claude Code hook entry points (thin wrappers around adapter)
+- `hooks/` — Source TS hook entry points (dev testing, thin wrappers around adapter)
 - `config/default.json` — Default plugin configuration
-- `skills/` — Claude Code skills (plugin-guide, troubleshooting)
-- `.claude-plugin/plugin.json` — Claude Code plugin manifest
+
+### Claude Code plugin packaging
+- `claude-plugin/` — Shipped plugin artifact (what marketplace installs)
+  - `claude-plugin/.claude-plugin/plugin.json` — Plugin manifest
+  - `claude-plugin/hooks/` — Compiled `.mjs` hooks (import from `../../dist/`)
+  - `claude-plugin/hooks/hooks.json` — Hook event config
+  - `claude-plugin/skills/` — Claude Code skills (plugin-guide, troubleshooting)
+  - `claude-plugin/.mcp.json` — MCP server config (uses `CLAUDE_PLUGIN_ROOT`)
+- `.claude-plugin/marketplace.json` — Marketplace config, `"source": "./claude-plugin"`
+- Root has NO `.mcp.json` — avoids project-level MCP conflict during dev
 
 ### State initialization
 All state-touching code must call `initStateDir(provider)` before any state operations.
@@ -142,12 +150,14 @@ agent-awareness mcp status                 # show MCP status
 
 ## Dev commands
 ```bash
-node hooks/session-start.ts     # test session-start output
-node hooks/prompt-submit.ts     # test prompt-submit output
+node hooks/session-start.ts     # test session-start (source TS, dev)
+node hooks/prompt-submit.ts     # test prompt-submit (source TS, dev)
+node claude-plugin/hooks/session-start.mjs  # test compiled hook (what users get)
 node --test src/**/*.test.ts    # run tests
 npx tsc --noEmit                # type-check
 npm run build                   # emit JS to dist/ + types to types/
 node src/cli.ts doctor          # test doctor command locally
+claude --plugin-dir ./claude-plugin  # test plugin locally (full integration)
 ```
 
 ## Types & build for plugin developers

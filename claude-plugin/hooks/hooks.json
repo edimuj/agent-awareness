@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.ts\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.mjs\"",
             "timeout": 15
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-submit.ts\"",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/prompt-submit.mjs\"",
             "timeout": 10,
             "async": true
           }

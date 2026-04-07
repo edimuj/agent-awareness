@@ -13,7 +13,7 @@
       "showDate": true,
       "showWeekNumber": true,
       "showBusinessHours": true,
-      "businessHours": { "start": 9, "end": 17 },
+      "businessHours": { "start": 8, "end": 17 },
       "triggers": {
         "session-start": "full",
         "change:hour": "compact"
