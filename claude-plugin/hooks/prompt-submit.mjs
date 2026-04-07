@@ -1,4 +1,4 @@
-import { run } from '../../dist/providers/claude-code/adapter.js';
+import { run } from '../dist/providers/claude-code/adapter.js';
 
 // Drain stdin — Claude Code pipes data here. Not reading it causes EPIPE.
 if (!process.stdin.isTTY) {

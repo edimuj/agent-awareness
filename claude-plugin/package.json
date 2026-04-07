@@ -1,0 +1,9 @@
+{
+  "name": "agent-awareness-claude-plugin",
+  "version": "0.5.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.28.0"
+  }
+}

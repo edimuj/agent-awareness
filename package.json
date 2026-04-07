@@ -18,8 +18,8 @@
     }
   },
   "scripts": {
-    "clean": "rm -rf dist types",
-    "build": "npm run clean && tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist types claude-plugin/dist",
+    "build": "npm run clean && tsc -p tsconfig.build.json && cp -r dist claude-plugin/dist",
     "prepublishOnly": "npm run build",
     "test": "node --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
