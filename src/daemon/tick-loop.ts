@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { Registry } from '../core/registry.ts';
 import { PluginDispatcher } from '../core/dispatcher.ts';
 import { loadPlugins } from '../core/loader.ts';
-import { loadState, getPluginState, setPluginState, withState, loadTickerCache, saveTickerCache } from '../core/state.ts';
+import { initStateDir, loadState, getPluginState, setPluginState, withState, loadTickerCache, saveTickerCache } from '../core/state.ts';
 import { parseInterval } from '../core/types.ts';
 import type { GatherContext, PluginState, Trigger } from '../core/types.ts';
 import { createClaimContext } from '../core/claims.ts';
@@ -35,6 +35,7 @@ const dispatcher = new PluginDispatcher();
 
 /**
  * Load plugins, build registry, and compute interval schedules.
+ * Initializes provider-scoped state directory.
  * Returns null if no interval plugins are configured.
  */
 export async function setupTicker(provider: string): Promise<{
@@ -43,6 +44,8 @@ export async function setupTicker(provider: string): Promise<{
   tickMs: number;
   context: GatherContext;
 } | null> {
+  await initStateDir(provider);
+
   const registry = new Registry();
   const { plugins } = await loadPlugins();
   for (const plugin of plugins) registry.register(plugin);

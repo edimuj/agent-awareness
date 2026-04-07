@@ -1,15 +1,23 @@
-import { describe, it, afterEach } from 'node:test';
+import { describe, it, before, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { rm, mkdir, writeFile, mkdtemp } from 'node:fs/promises';
 import { join } from 'node:path';
-import { hostname } from 'node:os';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { createClaimContext, pruneExpiredClaims, CLAIMS_DIR } from './claims.ts';
+import { initStateDir, STATE_DIR } from './state.ts';
+import { createClaimContext, pruneExpiredClaims } from './claims.ts';
+
+function claimsDir(): string {
+  return join(STATE_DIR, 'claims');
+}
+
+before(async () => {
+  await initStateDir('test');
+});
 
 afterEach(async () => {
-  await rm(CLAIMS_DIR, { recursive: true, force: true });
+  await rm(claimsDir(), { recursive: true, force: true });
 });
 
 describe('createClaimContext', () => {
@@ -30,9 +38,9 @@ describe('createClaimContext', () => {
     const ctx = createClaimContext('test-plugin');
 
     // Fake a claim from PID 1 (init — always alive on Linux)
-    const claimDir = join(CLAIMS_DIR, 'test-plugin');
-    await mkdir(claimDir, { recursive: true });
-    await writeFile(join(claimDir, 'event-1.json'), JSON.stringify({
+    const dir = join(claimsDir(), 'test-plugin');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'event-1.json'), JSON.stringify({
       holder: `${hostname()}:1`,
       pid: 1,
       claimedAt: new Date().toISOString(),
@@ -47,10 +55,9 @@ describe('createClaimContext', () => {
   it('reclaims expired event', async () => {
     const ctx = createClaimContext('test-plugin');
 
-    // Fake an expired claim
-    const claimDir = join(CLAIMS_DIR, 'test-plugin');
-    await mkdir(claimDir, { recursive: true });
-    await writeFile(join(claimDir, 'event-1.json'), JSON.stringify({
+    const dir = join(claimsDir(), 'test-plugin');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'event-1.json'), JSON.stringify({
       holder: `${hostname()}:1`,
       pid: 1,
       claimedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
@@ -64,10 +71,9 @@ describe('createClaimContext', () => {
   it('reclaims event from dead PID', async () => {
     const ctx = createClaimContext('test-plugin');
 
-    // Fake a claim from a dead PID
-    const claimDir = join(CLAIMS_DIR, 'test-plugin');
-    await mkdir(claimDir, { recursive: true });
-    await writeFile(join(claimDir, 'event-1.json'), JSON.stringify({
+    const dir = join(claimsDir(), 'test-plugin');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'event-1.json'), JSON.stringify({
       holder: `${hostname()}:999999999`,
       pid: 999999999,
       claimedAt: new Date().toISOString(),
@@ -87,9 +93,9 @@ describe('createClaimContext', () => {
   it('isClaimedByOther returns true for foreign claim', async () => {
     const ctx = createClaimContext('test-plugin');
 
-    const claimDir = join(CLAIMS_DIR, 'test-plugin');
-    await mkdir(claimDir, { recursive: true });
-    await writeFile(join(claimDir, 'event-1.json'), JSON.stringify({
+    const dir = join(claimsDir(), 'test-plugin');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'event-1.json'), JSON.stringify({
       holder: `${hostname()}:1`,
       pid: 1,
       claimedAt: new Date().toISOString(),
@@ -105,7 +111,6 @@ describe('createClaimContext', () => {
     await ctx.release('event-1');
     assert.equal(await ctx.isClaimedByOther('event-1'), false);
 
-    // Should be claimable again
     const result = await ctx.tryClaim('event-1');
     assert.equal(result.claimed, true);
   });
@@ -113,9 +118,9 @@ describe('createClaimContext', () => {
   it('release does not remove foreign claim', async () => {
     const ctx = createClaimContext('test-plugin');
 
-    const claimDir = join(CLAIMS_DIR, 'test-plugin');
-    await mkdir(claimDir, { recursive: true });
-    await writeFile(join(claimDir, 'event-1.json'), JSON.stringify({
+    const dir = join(claimsDir(), 'test-plugin');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'event-1.json'), JSON.stringify({
       holder: `${hostname()}:1`,
       pid: 1,
       claimedAt: new Date().toISOString(),
@@ -123,7 +128,6 @@ describe('createClaimContext', () => {
     }));
 
     await ctx.release('event-1');
-    // Should still be claimed by PID 1
     assert.equal(await ctx.isClaimedByOther('event-1'), true);
   });
 
@@ -131,8 +135,6 @@ describe('createClaimContext', () => {
     const ctx = createClaimContext('pr-pilot');
     const result = await ctx.tryClaim('vercel/next.js#4521:checks_failed');
     assert.equal(result.claimed, true);
-
-    // Should be retrievable
     assert.equal(await ctx.isClaimedByOther('vercel/next.js#4521:checks_failed'), false);
   });
 
@@ -141,16 +143,18 @@ describe('createClaimContext', () => {
     const ctxB = createClaimContext('plugin-b');
 
     await ctxA.tryClaim('event-1');
-    // Different plugin, same event key — should succeed
     const result = await ctxB.tryClaim('event-1');
     assert.equal(result.claimed, true);
   });
 
   it('serializes concurrent claims across separate pids', async () => {
     const childHome = await mkdtemp(join(tmpdir(), 'agent-awareness-claims-race-'));
-    const moduleUrl = pathToFileURL(join(process.cwd(), 'src/core/claims.ts')).href;
+    const stateUrl = pathToFileURL(join(process.cwd(), 'src/core/state.ts')).href;
+    const claimsUrl = pathToFileURL(join(process.cwd(), 'src/core/claims.ts')).href;
     const script = `
-import { createClaimContext } from '${moduleUrl}';
+import { initStateDir } from '${stateUrl}';
+import { createClaimContext } from '${claimsUrl}';
+await initStateDir('test');
 const startAt = Number(process.argv[2] ?? Date.now());
 const eventKey = process.argv[3] ?? 'race-event';
 const holdMs = Number(process.argv[4] ?? 600);
@@ -211,11 +215,11 @@ describe('pruneExpiredClaims', () => {
   });
 
   it('prunes expired claims', async () => {
-    const claimDir = join(CLAIMS_DIR, 'test-plugin');
-    await mkdir(claimDir, { recursive: true });
+    const dir = join(claimsDir(), 'test-plugin');
+    await mkdir(dir, { recursive: true });
 
     // Expired claim
-    await writeFile(join(claimDir, 'old.json'), JSON.stringify({
+    await writeFile(join(dir, 'old.json'), JSON.stringify({
       holder: `${hostname()}:${process.pid}`,
       pid: process.pid,
       claimedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
@@ -223,7 +227,7 @@ describe('pruneExpiredClaims', () => {
     }));
 
     // Live claim
-    await writeFile(join(claimDir, 'fresh.json'), JSON.stringify({
+    await writeFile(join(dir, 'fresh.json'), JSON.stringify({
       holder: `${hostname()}:${process.pid}`,
       pid: process.pid,
       claimedAt: new Date().toISOString(),
@@ -233,7 +237,6 @@ describe('pruneExpiredClaims', () => {
     const pruned = await pruneExpiredClaims();
     assert.equal(pruned, 1);
 
-    // Fresh claim should survive
     const ctx = createClaimContext('test-plugin');
     assert.equal(await ctx.isClaimedByOther('fresh'), false);
   });

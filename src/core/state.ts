@@ -1,19 +1,70 @@
-import { readFile, writeFile, mkdir, unlink } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, unlink, rename, cp, rm, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { PluginState } from './types.ts';
-import { withStateLock } from './lock.ts';
+import { withStateLock, setLockDir } from './lock.ts';
 
-export const STATE_DIR = join(homedir(), '.cache', 'agent-awareness');
-const STATE_FILE = join(STATE_DIR, 'state.json');
-const TICKER_CACHE = join(STATE_DIR, 'ticker-cache.json');
-const PID_FILE = join(STATE_DIR, 'ticker.pid');
-const TICKER_OWNER_FILE = join(STATE_DIR, 'ticker-owner');
-const CHANNEL_SEEN_FILE = join(STATE_DIR, 'channel-seen.json');
+const BASE_DIR = join(homedir(), '.cache', 'agent-awareness');
+
+/** Provider-scoped state directory. Must call initStateDir() before using state functions. */
+export let STATE_DIR = '';
+
+/**
+ * Initialize the state directory for a specific provider.
+ * Must be called once at startup before any state operations.
+ * Runs one-time migration from old flat layout if needed.
+ */
+export async function initStateDir(provider: string): Promise<void> {
+  STATE_DIR = join(BASE_DIR, provider);
+  setLockDir(join(STATE_DIR, 'state.lock'));
+  await mkdir(STATE_DIR, { recursive: true });
+  await migrateFromFlatLayout(provider);
+}
+
+/**
+ * Migrate old flat ~/.cache/agent-awareness/ files into provider subdir.
+ * Only runs once — skips if provider dir already has state.json.
+ */
+async function migrateFromFlatLayout(provider: string): Promise<void> {
+  const providerState = join(STATE_DIR, 'state.json');
+  const oldState = join(BASE_DIR, 'state.json');
+
+  // Skip if provider state already exists or old state doesn't
+  const [hasNew, hasOld] = await Promise.all([
+    access(providerState).then(() => true, () => false),
+    access(oldState).then(() => true, () => false),
+  ]);
+  if (hasNew || !hasOld) return;
+
+  // Move files from flat layout to provider subdir
+  const filesToMove = ['state.json', 'ticker-cache.json', 'channel-seen.json', 'agent-awareness.log', 'agent-awareness.log.1'];
+  for (const file of filesToMove) {
+    const src = join(BASE_DIR, file);
+    const dst = join(STATE_DIR, file);
+    try {
+      await rename(src, dst);
+    } catch { /* file doesn't exist — skip */ }
+  }
+
+  // Copy claims directory
+  const oldClaims = join(BASE_DIR, 'claims');
+  const newClaims = join(STATE_DIR, 'claims');
+  try {
+    await cp(oldClaims, newClaims, { recursive: true });
+    await rm(oldClaims, { recursive: true, force: true });
+  } catch { /* no claims dir — skip */ }
+
+  // Clean up old ticker files
+  for (const file of ['ticker.pid', 'ticker-owner']) {
+    try { await unlink(join(BASE_DIR, file)); } catch { /* skip */ }
+  }
+}
+
+// --- Plugin state ---
 
 export async function loadState(): Promise<PluginState> {
   try {
-    return JSON.parse(await readFile(STATE_FILE, 'utf8'));
+    return JSON.parse(await readFile(join(STATE_DIR, 'state.json'), 'utf8'));
   } catch {
     return {};
   }
@@ -21,7 +72,7 @@ export async function loadState(): Promise<PluginState> {
 
 export async function saveState(state: PluginState): Promise<void> {
   await mkdir(STATE_DIR, { recursive: true });
-  await writeFile(STATE_FILE, JSON.stringify(state, null, 2) + '\n');
+  await writeFile(join(STATE_DIR, 'state.json'), JSON.stringify(state, null, 2) + '\n');
 }
 
 export function getPluginState(state: PluginState, pluginName: string): Record<string, unknown> | null {
@@ -34,10 +85,7 @@ export function setPluginState(state: PluginState, pluginName: string, pluginSta
 
 /**
  * Atomic read-modify-write for plugin state.
- *
- * Acquires a file lock, loads state, calls the transform function,
- * saves the result, and releases the lock. This prevents race conditions
- * when multiple processes (ticker, prompt hook, MCP server) access state.
+ * Acquires file lock, loads state, calls transform, saves result, releases lock.
  */
 export async function withState(fn: (state: PluginState) => Promise<PluginState> | PluginState): Promise<PluginState> {
   return withStateLock(async () => {
@@ -48,14 +96,15 @@ export async function withState(fn: (state: PluginState) => Promise<PluginState>
   });
 }
 
-/** Cached text results from the background ticker, keyed by plugin name. */
+// --- Ticker cache (Tier 2 / MCP only) ---
+
 export interface TickerCache {
   [pluginName: string]: { text: string; gatheredAt: string };
 }
 
 export async function loadTickerCache(): Promise<TickerCache> {
   try {
-    return JSON.parse(await readFile(TICKER_CACHE, 'utf8'));
+    return JSON.parse(await readFile(join(STATE_DIR, 'ticker-cache.json'), 'utf8'));
   } catch {
     return {};
   }
@@ -63,17 +112,19 @@ export async function loadTickerCache(): Promise<TickerCache> {
 
 export async function saveTickerCache(cache: TickerCache): Promise<void> {
   await mkdir(STATE_DIR, { recursive: true });
-  await writeFile(TICKER_CACHE, JSON.stringify(cache) + '\n');
+  await writeFile(join(STATE_DIR, 'ticker-cache.json'), JSON.stringify(cache) + '\n');
 }
+
+// --- Ticker PID (MCP server process tracking) ---
 
 export async function writeTickerPid(pid: number): Promise<void> {
   await mkdir(STATE_DIR, { recursive: true });
-  await writeFile(PID_FILE, String(pid) + '\n');
+  await writeFile(join(STATE_DIR, 'ticker.pid'), String(pid) + '\n');
 }
 
 export async function readTickerPid(): Promise<number | null> {
   try {
-    const raw = await readFile(PID_FILE, 'utf8');
+    const raw = await readFile(join(STATE_DIR, 'ticker.pid'), 'utf8');
     return parseInt(raw.trim()) || null;
   } catch {
     return null;
@@ -81,36 +132,15 @@ export async function readTickerPid(): Promise<number | null> {
 }
 
 export async function clearTickerPid(): Promise<void> {
-  try { await unlink(PID_FILE); }
+  try { await unlink(join(STATE_DIR, 'ticker.pid')); }
   catch { /* already gone */ }
 }
 
-/** Who owns the ticker: 'mcp' (MCP server running it) or 'daemon' (standalone). */
-export type TickerOwner = 'mcp' | 'daemon';
+// --- Channel-seen fingerprints (Tier 2 / MCP dedup) ---
 
-export async function writeTickerOwner(owner: TickerOwner): Promise<void> {
-  await mkdir(STATE_DIR, { recursive: true });
-  await writeFile(TICKER_OWNER_FILE, owner + '\n');
-}
-
-export async function readTickerOwner(): Promise<TickerOwner | null> {
-  try {
-    const raw = (await readFile(TICKER_OWNER_FILE, 'utf8')).trim();
-    return raw === 'mcp' || raw === 'daemon' ? raw : null;
-  } catch {
-    return null;
-  }
-}
-
-export async function clearTickerOwner(): Promise<void> {
-  try { await unlink(TICKER_OWNER_FILE); }
-  catch { /* already gone */ }
-}
-
-/** Fingerprints already pushed via channel — prompt hook skips these to avoid double injection. */
 export async function loadChannelSeen(): Promise<Record<string, string>> {
   try {
-    return JSON.parse(await readFile(CHANNEL_SEEN_FILE, 'utf8'));
+    return JSON.parse(await readFile(join(STATE_DIR, 'channel-seen.json'), 'utf8'));
   } catch {
     return {};
   }
@@ -118,10 +148,10 @@ export async function loadChannelSeen(): Promise<Record<string, string>> {
 
 export async function saveChannelSeen(seen: Record<string, string>): Promise<void> {
   await mkdir(STATE_DIR, { recursive: true });
-  await writeFile(CHANNEL_SEEN_FILE, JSON.stringify(seen) + '\n');
+  await writeFile(join(STATE_DIR, 'channel-seen.json'), JSON.stringify(seen) + '\n');
 }
 
 export async function clearChannelSeen(): Promise<void> {
-  try { await unlink(CHANNEL_SEEN_FILE); }
+  try { await unlink(join(STATE_DIR, 'channel-seen.json')); }
   catch { /* already gone */ }
 }

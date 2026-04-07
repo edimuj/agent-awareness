@@ -1,19 +1,22 @@
-import { readdir, stat, readFile } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { loadPlugins } from '../core/loader.ts';
 import { Registry } from '../core/registry.ts';
-import { STATE_DIR } from '../core/state.ts';
+import { initStateDir, STATE_DIR } from '../core/state.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
 const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
 const LOCAL_PLUGIN_DIR = join(homedir(), '.config', 'agent-awareness', 'plugins');
-const LOG_FILE = join(STATE_DIR, 'agent-awareness.log');
 
 export async function doctor(): Promise<void> {
+  await initStateDir('claude-code');
+
+  const logFile = join(STATE_DIR, 'agent-awareness.log');
+
   console.log('agent-awareness doctor\n');
 
   // --- Plugin sources ---
@@ -46,9 +49,9 @@ export async function doctor(): Promise<void> {
   // --- State & logs ---
   console.log('\nPaths:');
   console.log(`  state:    ${STATE_DIR}`);
-  console.log(`  log:      ${LOG_FILE}`);
+  console.log(`  log:      ${logFile}`);
 
-  const logExists = await stat(LOG_FILE).catch(() => null);
+  const logExists = await stat(logFile).catch(() => null);
   if (logExists) {
     const sizeKb = (logExists.size / 1024).toFixed(1);
     console.log(`            (${sizeKb} KB, last modified: ${logExists.mtime.toISOString().slice(0, 19)})`);
@@ -66,10 +69,8 @@ export async function doctor(): Promise<void> {
   }
   await registry.loadConfig(DEFAULT_CONFIG);
 
-  // Categorize errors by source
   const realErrors = errors.filter(e => !e.source.includes('.test.'));
 
-  // Show loaded plugins
   if (plugins.length > 0) {
     const nameWidth = Math.max(12, ...plugins.map(p => p.name.length)) + 2;
     console.log(`  Loaded (${plugins.length}):`);
@@ -82,18 +83,15 @@ export async function doctor(): Promise<void> {
     }
   }
 
-  // Show errors grouped by source type
   if (realErrors.length > 0) {
     console.log(`\n  Errors (${realErrors.length}):`);
     for (const { source, error } of realErrors) {
-      // Truncate long error messages for readability
       const shortError = error.length > 100 ? error.slice(0, 97) + '...' : error;
       console.log(`    FAIL ${source}`);
       console.log(`         ${shortError}`);
     }
   }
 
-  // --- Global npm plugin check ---
   if (globalRoot) {
     let globalPlugins: string[] = [];
     try {
@@ -101,21 +99,21 @@ export async function doctor(): Promise<void> {
       globalPlugins = entries.filter(e => e.startsWith('agent-awareness-plugin-'));
     } catch { /* no access */ }
 
-    if (globalPlugins.length > 0) {
-      const failingGlobal = realErrors.filter(e => e.source.startsWith('global:'));
-      if (failingGlobal.length > 0) {
-        console.log(`\n  Hint: ${failingGlobal.length} global plugin(s) failed to load.`);
-        console.log(`        If they were installed before the JS build pipeline was added,`);
-        console.log(`        reinstall with: npm install -g <package-name>`);
-      }
+    if (failingGlobalPlugins(globalPlugins, realErrors)) {
+      console.log(`\n  Hint: Some global plugin(s) failed to load.`);
+      console.log(`        If they were installed before the JS build pipeline was added,`);
+      console.log(`        reinstall with: npm install -g <package-name>`);
     }
   }
 
-  // --- Summary ---
   const total = plugins.length + realErrors.length;
   const ok = plugins.length;
   const fail = realErrors.length;
-  const statusEmoji = fail === 0 ? 'healthy' : fail > ok ? 'unhealthy' : 'degraded';
+  const statusLabel = fail === 0 ? 'healthy' : fail > ok ? 'unhealthy' : 'degraded';
 
-  console.log(`\nStatus: ${statusEmoji} — ${ok} loaded, ${fail} failed (${total} discovered)`);
+  console.log(`\nStatus: ${statusLabel} — ${ok} loaded, ${fail} failed (${total} discovered)`);
+}
+
+function failingGlobalPlugins(globalPlugins: string[], errors: Array<{ source: string; error: string }>): boolean {
+  return globalPlugins.length > 0 && errors.some(e => e.source.startsWith('global:'));
 }

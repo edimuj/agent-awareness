@@ -19,9 +19,13 @@
 
 import { mkdir, writeFile, readFile, rm, readdir, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { hostname, homedir } from 'node:os';
+import { hostname } from 'node:os';
+import { STATE_DIR } from './state.ts';
 
-export const CLAIMS_DIR = join(homedir(), '.cache', 'agent-awareness', 'claims');
+function getClaimsDir(): string {
+  if (!STATE_DIR) throw new Error('STATE_DIR not initialized — call initStateDir() first');
+  return join(STATE_DIR, 'claims');
+}
 
 /** Default claim TTL: 30 minutes. */
 const DEFAULT_TTL_MS = 30 * 60_000;
@@ -80,7 +84,7 @@ function holder(): string {
 }
 
 function claimDir(pluginName: string): string {
-  return join(CLAIMS_DIR, pluginName);
+  return join(getClaimsDir(), pluginName);
 }
 
 function claimFile(pluginName: string, eventKey: string): string {
@@ -279,13 +283,13 @@ export async function pruneExpiredClaims(): Promise<number> {
   let pluginDirs: string[];
 
   try {
-    pluginDirs = await readdir(CLAIMS_DIR);
+    pluginDirs = await readdir(getClaimsDir());
   } catch {
     return 0; // no claims dir yet
   }
 
   for (const dir of pluginDirs) {
-    const dirPath = join(CLAIMS_DIR, dir);
+    const dirPath = join(getClaimsDir(), dir);
     let files: string[];
     try {
       files = await readdir(dirPath);
