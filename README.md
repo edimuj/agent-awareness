@@ -48,21 +48,14 @@ For real-world examples, check out [agent-awareness-plugins](https://github.com/
 
 ## Install
 
-As a Claude Code plugin:
+As a Claude Code plugin (distributed via npm — dependencies handled automatically):
 
 ```bash
 # Add the marketplace (one-time)
 /plugin marketplace add edimuj/agent-awareness
 
 # Install
-/plugin install agent-awareness@edimuj
-```
-
-From a local clone:
-```bash
-git clone https://github.com/edimuj/agent-awareness.git
-cd agent-awareness && npm install
-/plugin install /path/to/agent-awareness
+/plugin install agent-awareness@agent-awareness
 ```
 
 For Codex CLI:
@@ -199,16 +192,13 @@ agent-awareness is designed as a **progressive enhancement** — each tier adds 
 |------|-------------|-------|
 | **Hooks only** | Context injection at session start + on each prompt. Background ticker polls interval plugins, injects on next prompt. | Default. No MCP needed. |
 | **Hooks + MCP** | Same as above, plus `awareness_doctor` diagnostic tool. MCP server runs the ticker internally. | MCP auto-configured via plugin. |
-| **Hooks + MCP + Channel** | Real-time push between prompts. CI fails → agent knows immediately, no prompt needed. | Launch with `--dangerously-load-development-channels server:agent-awareness` |
+| **Hooks + MCP + Channel** | Real-time push between prompts. CI fails → agent knows immediately, no prompt needed. | Launch with `--dangerously-load-development-channels plugin:agent-awareness@agent-awareness` |
 
-Channels use Claude Code's experimental `claude/channel` capability. The MCP server always declares it — if Claude Code wasn't launched with the channel flag, notifications are silently dropped and you get tier 2 behavior. Zero config.
+Channels use Claude Code's experimental `claude/channel` capability. A central daemon process runs the ticker loop once — all sessions connect via SSE and receive broadcasts. The MCP server is a thin adapter that forwards daemon results to the session's channel.
 
 ```bash
 # Tier 3: launch with channel support
-claude --dangerously-load-development-channels server:agent-awareness
-
-# Or with claude-rig (set globally for all rigs)
-claude-rig set-args --dangerously-skip-permissions --dangerously-load-development-channels server:agent-awareness
+claude --dangerously-load-development-channels plugin:agent-awareness@agent-awareness
 ```
 
 Codex integration:
@@ -296,9 +286,18 @@ The full `context.claims` API:
 | `isClaimedByOther(eventKey)` | Check without claiming |
 | `release(eventKey)` | Release your claim (e.g., after completing the action) |
 
-## Background ticker
+## Background ticker (central daemon)
 
-`interval:10m` means every 10 minutes — not "whenever you happen to type after 10 minutes." A background process handles exact timing and caches results for near-zero latency on prompt.
+`interval:10m` means every 10 minutes — not "whenever you happen to type after 10 minutes."
+
+A central daemon process runs the ticker loop once per machine. When the first session starts, the session-start hook auto-spawns the daemon. The daemon:
+
+- Loads all plugins once
+- Runs interval/change triggers on schedule
+- Broadcasts results to all connected sessions via SSE
+- Auto-shuts down after 15 minutes of inactivity
+
+Multiple sessions share one daemon — no duplicated API calls, no state races.
 
 ## Provider-aware
 
@@ -335,7 +334,7 @@ agent-awareness codex doctor           # diagnose Codex integration
 agent-awareness doctor    # full health check
 ```
 
-**Log file:** `~/.cache/agent-awareness/agent-awareness.log` — captures ticker errors, plugin failures, lock contention. Auto-rotates at 256 KB. The `doctor` command shows the log location and file size.
+**Log file:** `~/.cache/agent-awareness/claude-code/agent-awareness.log` — captures ticker errors, plugin failures, lock contention. Auto-rotates at 256 KB. The `doctor` command shows the log location and file size.
 
 **MCP tool:** `awareness_doctor` — same diagnostics, available to agents.
 

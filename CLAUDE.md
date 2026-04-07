@@ -52,7 +52,7 @@ Plugins are provider-agnostic — they receive `GatherContext` and don't know wh
   - `claude-plugin/hooks/hooks.json` — Hook event config
   - `claude-plugin/skills/` — Claude Code skills (plugin-guide, troubleshooting)
   - `claude-plugin/.mcp.json` — MCP server config (uses `CLAUDE_PLUGIN_ROOT`)
-- `.claude-plugin/marketplace.json` — Marketplace config, `"source": "./claude-plugin"`
+- `.claude-plugin/marketplace.json` — Marketplace config, npm source: `agent-awareness-claude-plugin`
 - Root has NO `.mcp.json` — avoids project-level MCP conflict during dev
 
 ### State initialization
@@ -62,8 +62,31 @@ This sets the provider-scoped `STATE_DIR` and runs one-time migration from old f
 ## Versioning — CRITICAL
 Three version fields exist — **ALL must be bumped together on every release**:
 1. `package.json` `"version"` — npm registry version
-2. `.claude-plugin/plugin.json` `"version"` — Claude Code marketplace version
-3. `.codex-plugin/plugin.json` `"version"` — Codex marketplace version
+2. `claude-plugin/package.json` `"version"` — npm package version (must match)
+3. `claude-plugin/.claude-plugin/plugin.json` `"version"` — Claude Code plugin manifest
+4. `.codex-plugin/plugin.json` `"version"` — Codex marketplace version
+
+## Publishing a new version
+```bash
+# 1. Bump version in all three places (e.g. 0.5.0 → 0.6.0)
+#    - package.json
+#    - claude-plugin/package.json
+#    - claude-plugin/.claude-plugin/plugin.json
+#    - .codex-plugin/plugin.json (if codex is active)
+
+# 2. Commit and push
+git add -A && git commit -m "release: v0.6.0" && git push
+
+# 3. Publish npm package (runs prepublishOnly → builds dist/)
+cd claude-plugin && npm publish && cd ..
+
+# 4. Update installed plugins across rigs
+claude-rig update-plugins
+```
+
+The `prepublishOnly` script in `claude-plugin/package.json` runs `cd .. && npm run build`,
+which compiles TS → `dist/` and copies it into `claude-plugin/dist/`. The npm `files` field
+ships only the runtime artifacts (hooks, skills, dist, .mcp.json, .claude-plugin/).
 
 ## Plugin interface
 Each plugin exports: `{ name, description, triggers, defaults, gather(trigger, config, prevState, context) → { text, state } }`
