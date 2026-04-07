@@ -145,7 +145,7 @@ async function startInternalTicker(server: Server): Promise<void> {
       method: 'notifications/claude/channel',
       params: {
         content: text,
-        meta: { plugin: pluginName.replace(/-/g, '_'), source: 'agent_awareness' },
+        meta: { plugin: pluginName.replace(/-/g, '_') },
       },
     }).catch(() => { /* channel not active */ });
 
