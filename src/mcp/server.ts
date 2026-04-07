@@ -29,14 +29,10 @@ const CHANNEL_INSTRUCTIONS = [
   'Info-level updates provide ambient awareness context.',
 ].join(' ');
 
-async function main(): Promise<void> {
-  // Connect to daemon (auto-starts if needed)
-  const daemon = await ensureServer();
-  if (!daemon) {
-    console.error('[agent-awareness-mcp] failed to connect to daemon');
-    // Fall through — MCP server still provides doctor tool
-  }
+// Module-level daemon info — set after transport is connected
+let daemon: DaemonInfo | null = null;
 
+async function main(): Promise<void> {
   // Create MCP server with channel capability
   const server = new Server(
     { name: 'agent-awareness', version: '0.1.0' },
@@ -70,6 +66,8 @@ async function main(): Promise<void> {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     if (request.params.name === 'awareness_doctor') {
       let text: string;
+      // Lazy-connect to daemon if not yet connected
+      if (!daemon) daemon = await ensureServer();
       if (daemon) {
         try {
           text = await getDoctorFromDaemon(daemon);
@@ -77,7 +75,7 @@ async function main(): Promise<void> {
           text = `Failed to reach daemon: ${err.message}`;
         }
       } else {
-        text = 'Daemon not connected. Run: node src/daemon/server.ts';
+        text = 'Daemon not available. Check: cat ~/.cache/agent-awareness/daemon.pid';
       }
       return { content: [{ type: 'text' as const, text }] };
     }
@@ -87,13 +85,16 @@ async function main(): Promise<void> {
     };
   });
 
-  // Start transport
+  // Start MCP transport FIRST — must complete before any stdout writes
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Connect to daemon SSE stream and forward to channel
+  // NOW connect to daemon (after transport is ready for notifications)
+  daemon = await ensureServer();
   if (daemon) {
     connectAndForward(server, daemon);
+  } else {
+    console.error('[agent-awareness-mcp] failed to connect to daemon');
   }
 
   // Clean shutdown
@@ -105,8 +106,8 @@ async function main(): Promise<void> {
 
 const channelSeen = new Map<string, string>();
 
-async function connectAndForward(server: Server, daemon: DaemonInfo): Promise<void> {
-  const stream = await connectSSE(daemon, SESSION_ID);
+async function connectAndForward(server: Server, daemonInfo: DaemonInfo): Promise<void> {
+  const stream = await connectSSE(daemonInfo, SESSION_ID);
   if (!stream) {
     console.error('[agent-awareness-mcp] failed to connect SSE stream');
     return;
@@ -143,12 +144,12 @@ async function connectAndForward(server: Server, daemon: DaemonInfo): Promise<vo
 
   stream.on('end', () => {
     console.error('[agent-awareness-mcp] SSE stream ended, will reconnect in 10s');
-    setTimeout(() => connectAndForward(server, daemon), 10_000);
+    setTimeout(() => connectAndForward(server, daemonInfo), 10_000);
   });
 
   stream.on('error', (err) => {
     console.error('[agent-awareness-mcp] SSE error:', err.message);
-    setTimeout(() => connectAndForward(server, daemon), 10_000);
+    setTimeout(() => connectAndForward(server, daemonInfo), 10_000);
   });
 }
 
