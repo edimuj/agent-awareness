@@ -106,10 +106,20 @@ async function main(): Promise<void> {
 
 const channelSeen = new Map<string, string>();
 
-async function connectAndForward(server: Server, daemonInfo: DaemonInfo): Promise<void> {
-  const stream = await connectSSE(daemonInfo, SESSION_ID);
+async function connectAndForward(server: Server, daemonInfo?: DaemonInfo): Promise<void> {
+  // Re-resolve daemon on every connect (port may have changed after restart)
+  const info = daemonInfo ?? await ensureServer();
+  if (!info) {
+    console.error('[agent-awareness-mcp] no daemon available, retry in 30s');
+    setTimeout(() => connectAndForward(server), 30_000);
+    return;
+  }
+  daemon = info; // update module-level ref for doctor tool
+
+  const stream = await connectSSE(info, SESSION_ID);
   if (!stream) {
-    console.error('[agent-awareness-mcp] failed to connect SSE stream');
+    console.error('[agent-awareness-mcp] failed to connect SSE stream, retry in 10s');
+    setTimeout(() => connectAndForward(server), 10_000);
     return;
   }
 
@@ -143,13 +153,12 @@ async function connectAndForward(server: Server, daemonInfo: DaemonInfo): Promis
   });
 
   stream.on('end', () => {
-    console.error('[agent-awareness-mcp] SSE stream ended, will reconnect in 10s');
-    setTimeout(() => connectAndForward(server, daemonInfo), 10_000);
+    console.error('[agent-awareness-mcp] SSE stream ended, reconnecting...');
+    setTimeout(() => connectAndForward(server), 5_000); // re-resolve daemon
   });
 
-  stream.on('error', (err) => {
-    console.error('[agent-awareness-mcp] SSE error:', err.message);
-    setTimeout(() => connectAndForward(server, daemonInfo), 10_000);
+  stream.on('error', () => {
+    setTimeout(() => connectAndForward(server), 5_000); // re-resolve daemon
   });
 }
 
