@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
+const CODEX_PLUGIN_ROOT = join(PROJECT_ROOT, 'codex-plugin');
 
 const SESSION_EVENT = 'SessionStart';
 const PROMPT_EVENT = 'UserPromptSubmit';
@@ -285,6 +286,15 @@ async function exists(path: string): Promise<boolean> {
 }
 
 async function resolveHookCommands(): Promise<ResolvedHookCommands> {
+  const pluginSession = join(CODEX_PLUGIN_ROOT, 'hooks', 'codex-session-start.mjs');
+  const pluginPrompt = join(CODEX_PLUGIN_ROOT, 'hooks', 'codex-prompt-submit.mjs');
+  if (await exists(pluginSession) && await exists(pluginPrompt)) {
+    return {
+      session: `node ${quotePath(pluginSession)}`,
+      prompt: `node ${quotePath(pluginPrompt)}`,
+    };
+  }
+
   const distSession = join(PROJECT_ROOT, 'dist', 'hooks', 'codex-session-start.js');
   const distPrompt = join(PROJECT_ROOT, 'dist', 'hooks', 'codex-prompt-submit.js');
   if (await exists(distSession) && await exists(distPrompt)) {
@@ -294,8 +304,8 @@ async function resolveHookCommands(): Promise<ResolvedHookCommands> {
     };
   }
 
-  const srcSession = join(PROJECT_ROOT, 'hooks', 'codex-session-start.ts');
-  const srcPrompt = join(PROJECT_ROOT, 'hooks', 'codex-prompt-submit.ts');
+  const srcSession = join(PROJECT_ROOT, 'src', 'hooks', 'codex-session-start.ts');
+  const srcPrompt = join(PROJECT_ROOT, 'src', 'hooks', 'codex-prompt-submit.ts');
   return {
     session: `node ${quotePath(srcSession)}`,
     prompt: `node ${quotePath(srcPrompt)}`,

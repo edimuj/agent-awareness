@@ -61,7 +61,7 @@ As a Claude Code plugin (distributed via npm — dependencies handled automatica
 For Codex CLI:
 ```bash
 npm install -g agent-awareness
-agent-awareness codex setup           # MCP + optional hooks + smoke test
+agent-awareness codex setup           # hooks-only setup (supported Codex path)
 ```
 Run this once, then use Codex in any project.
 
@@ -74,12 +74,16 @@ npm install -g agent-awareness-plugin-energy-curve
 npm install -g agent-awareness-plugin-focus-timer
 ```
 
-Why not `npx` for setup? MCP entries must point to a stable script path; `npx` installs to an ephemeral cache path, so `agent-awareness codex mcp install` intentionally blocks that flow.
+Why not `npx` for Codex setup? The supported path writes stable on-disk hook commands into Codex config, so setup has to point at a real install. The optional Codex diagnostic MCP entry has the same path-stability requirement.
 
-Codex plugin manifest files are included:
-- `.codex-plugin/plugin.json`
-- `.codex-mcp.json`
-- `hooks.json`
+Codex packaging artifacts live under `codex-plugin/`:
+- `codex-plugin/.codex-plugin/plugin.json`
+- `codex-plugin/.codex-mcp.json`
+- `codex-plugin/hooks.json`
+- `codex-plugin/hooks/`
+- `codex-plugin/README.md`
+
+Codex note: the supported integration in this repo is hooks-only. Clean-room validation showed that Codex marketplace/plugin install can cache and enable the `codex-plugin/` bundle, but it does not create hook config or activate awareness hooks. Use `agent-awareness codex setup`. Codex also does not currently have a documented equivalent to Claude Code channels, so real-time context push is not part of the Codex provider today. Optional Codex MCP support is diagnostic only. See [`codex-plugin/README.md`](./codex-plugin/README.md) for the exact contract of the packaged Codex bundle.
 
 ## Build your own plugin in 5 minutes
 
@@ -184,27 +188,31 @@ Config layers deep-merge: plugin defaults → package defaults → user global �
 
 Set `AGENT_AWARENESS_CONFIG` for per-project or per-rig overrides.
 
-## Three ways to run
+## Integration modes
 
-agent-awareness is designed as a **progressive enhancement** — each tier adds capability without breaking the previous one.
+agent-awareness is a progressive system, but providers do not all expose the same surfaces.
 
-| Tier | What you get | Setup |
-|------|-------------|-------|
-| **Hooks only** | Context injection at session start + on each prompt. Background ticker polls interval plugins, injects on next prompt. | Default. No MCP needed. |
-| **Hooks + MCP** | Same as above, plus `awareness_doctor` diagnostic tool. MCP server runs the ticker internally. | MCP auto-configured via plugin. |
-| **Hooks + MCP + Channel** | Real-time push between prompts. CI fails → agent knows immediately, no prompt needed. | Launch with `--dangerously-load-development-channels plugin:agent-awareness@agent-awareness` |
+| Mode | Provider | What you get | Setup |
+|------|----------|--------------|-------|
+| **Hooks only** | Claude Code, Codex | Context injection at session start and on prompt. `interval:*` and `change:*` are evaluated inline on prompt. | Default baseline. |
+| **Realtime path** | Claude Code | Central daemon runs interval/change checks once, MCP bridge exposes `awareness_doctor`, and Claude channel notifications push updates between prompts. | Install Claude MCP and launch with channel support. |
+| **Diagnostics MCP** | Codex | Optional `awareness_doctor` MCP tool only. No realtime delivery, no hook activation. | `agent-awareness codex mcp install` |
 
-Channels use Claude Code's experimental `claude/channel` capability. A central daemon process runs the ticker loop once — all sessions connect via SSE and receive broadcasts. The MCP server is a thin adapter that forwards daemon results to the session's channel.
+On the Claude realtime path, the central daemon is the actual agent-awareness server. It owns the ticker and SSE broadcast. The Claude MCP server is just a thin provider adapter that forwards daemon results into `claude/channel` notifications and exposes diagnostics.
+
+Current provider support:
+- Claude Code: hooks baseline plus realtime daemon/MCP/channel path.
+- Codex: hooks only as the supported awareness path. Optional MCP exists for diagnostics, but it does not provide real-time context injection.
 
 ```bash
-# Tier 3: launch with channel support
+# Claude realtime path: launch with channel support
 claude --dangerously-load-development-channels plugin:agent-awareness@agent-awareness
 ```
 
 Codex integration:
 ```bash
-agent-awareness codex setup          # one-command setup (MCP + hooks + smoke test)
-agent-awareness codex doctor         # diagnose Codex integration health
+agent-awareness codex setup          # install supported Codex hooks integration
+agent-awareness codex doctor         # diagnose Codex hooks + optional MCP health
 ```
 
 ## Lifecycle hooks
@@ -286,16 +294,18 @@ The full `context.claims` API:
 | `isClaimedByOther(eventKey)` | Check without claiming |
 | `release(eventKey)` | Release your claim (e.g., after completing the action) |
 
-## Background ticker (central daemon)
+## Background daemon (Claude realtime path)
 
 `interval:10m` means every 10 minutes — not "whenever you happen to type after 10 minutes."
 
-A central daemon process runs the ticker loop once per machine. When the first session starts, the session-start hook auto-spawns the daemon. The daemon:
+A central daemon process runs the ticker loop once per machine for the Claude Code realtime path. When the first session starts, the session-start hook auto-spawns the daemon. The daemon:
 
 - Loads all plugins once
 - Runs interval/change triggers on schedule
 - Broadcasts results to all connected sessions via SSE
 - Auto-shuts down after 15 minutes of inactivity
+
+The Claude MCP server does not run the ticker itself. It connects to the daemon SSE stream, forwards results into Claude channel notifications, and exposes `awareness_doctor`.
 
 Multiple sessions share one daemon — no duplicated API calls, no state races.
 
@@ -321,11 +331,11 @@ agent-awareness codex hooks uninstall --global # remove global Codex hooks
 agent-awareness codex hooks uninstall --project # remove project hooks
 agent-awareness codex hooks status --global    # check global hooks config
 agent-awareness codex hooks status --project   # check project hooks config
-agent-awareness codex mcp install      # add MCP server to Codex
-agent-awareness codex mcp uninstall    # remove MCP server from Codex
-agent-awareness codex mcp status       # check Codex MCP config
-agent-awareness codex setup            # one-command Codex setup + smoke test
-agent-awareness codex doctor           # diagnose Codex integration
+agent-awareness codex mcp install      # add optional diagnostic MCP server to Codex
+agent-awareness codex mcp uninstall    # remove optional Codex MCP server
+agent-awareness codex mcp status       # check optional Codex MCP config
+agent-awareness codex setup            # install supported Codex hooks integration
+agent-awareness codex doctor           # diagnose Codex hooks + optional MCP
 ```
 
 ## Diagnostics

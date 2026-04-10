@@ -1,149 +1,180 @@
 # Creating a Provider
 
-A provider is the bridge between agent-awareness and a specific AI coding agent (Claude Code, Codex, Aider, etc.). It handles how and when awareness data gets injected into the agent's context.
+A provider is the bridge between `agent-awareness` and a specific coding agent.
+The provider-specific part should stay thin. The core engine already handles:
 
-## What a provider does
+1. Plugin discovery and config loading
+2. Trigger matching, including `change:*` and `interval:*`
+3. Dispatch, timeouts, and error isolation
+4. Injection policy and rendering
+5. Provider-scoped state
 
-1. Creates a `Registry` and loads all discovered plugins
-2. Loads config
-3. Runs the awareness pipeline on events (session start, prompt, etc.)
-4. Returns rendered text for the agent to consume
-5. Manages the background ticker for interval-based plugins
+## Current model
 
-## Architecture
+Use a hooks-first adapter as the default provider shape.
 
-```
+```text
 your-agent/
-  ├── src/providers/your-agent/
-  │   └── adapter.ts          ← the provider adapter
-  └── hooks/
-      ├── your-agent-session-start.ts   ← hook entry points
-      └── your-agent-prompt-submit.ts
+  ├── src/providers/your-agent/adapter.ts
+  ├── src/hooks/
+  │   ├── your-agent-session-start.ts
+  │   └── your-agent-prompt-submit.ts
+  └── your-agent-plugin/
+      └── hooks/
+          ├── your-agent-session-start.mjs
+          └── your-agent-prompt-submit.mjs
 ```
 
-## Step 1: Create the adapter
+The direct adapter should:
 
-Create `src/providers/your-agent/adapter.ts`. The adapter is ~60 lines — most of it is boilerplate that's identical across providers. The only thing that changes is the provider name in `GatherContext`.
+1. Call `initStateDir('<provider>')`
+2. Build a registry and load config
+3. Resolve `GatherContext` with the provider name
+4. Run all triggered plugins inline
+5. Persist plugin state and policy fingerprints
+6. Return rendered text for the hook wrapper to inject
+
+That is the entire Tier 1 integration.
+
+## Reference pattern
+
+Start from the direct adapters in:
+
+- `src/providers/claude-code/adapter.ts`
+- `src/providers/codex/adapter.ts`
+
+They both follow the same structure. The only meaningful provider-specific inputs are:
+
+- provider name passed to `initStateDir()`
+- provider name passed to `resolveGatherContext()`
+- hook output formatting required by the target agent
+
+## Minimal adapter shape
 
 ```typescript
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
-import { spawn } from 'node:child_process';
 import { Registry } from '../../core/registry.ts';
+import { PluginDispatcher } from '../../core/dispatcher.ts';
 import { render } from '../../core/renderer.ts';
+import { applyInjectionPolicy } from '../../core/policy.ts';
 import {
-  loadState, saveState, getPluginState, setPluginState,
-  loadTickerCache, writeTickerPid, readTickerPid, clearTickerPid,
+  initStateDir, loadState, getPluginState, setPluginState, withState,
 } from '../../core/state.ts';
 import { loadPlugins } from '../../core/loader.ts';
-import { parseInterval } from '../../core/types.ts';
-import type { GatherContext, GatherResult, Trigger } from '../../core/types.ts';
+import type { GatherContext, GatherResult, PluginState, Trigger } from '../../core/types.ts';
+import type { PolicyInput } from '../../core/policy.ts';
+import { createClaimContext, pruneExpiredClaims } from '../../core/claims.ts';
+import { resolveGatherContext } from '../../core/session-context.ts';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
-const TICKER_SCRIPT = join(PROJECT_ROOT, 'src', 'daemon', 'ticker.ts');
 
-// This is the only line that differs between providers
-const CONTEXT: GatherContext = { provider: 'your-agent' };
+const dispatcher = new PluginDispatcher();
+let initialized = false;
+
+export async function run(event: string): Promise<string> {
+  if (!initialized) {
+    await initStateDir('your-agent');
+    initialized = true;
+  }
+
+  const registry = await createRegistry();
+  const context: GatherContext = await resolveGatherContext('your-agent');
+
+  if (event === 'session-start') {
+    await registry.startPlugins();
+    await pruneExpiredClaims();
+  }
+
+  const preState = await loadState();
+  const triggered = registry.getTriggeredPlugins(event, preState);
+  const dispatchEntries = triggered.map(({ plugin, trigger }) => ({
+    pluginName: plugin.name,
+    executor: (signal: AbortSignal) => {
+      const config = registry.getPluginConfig(plugin.name)!;
+      const prevState = getPluginState(preState, plugin.name);
+      const claims = createClaimContext(plugin.name);
+      return Promise.resolve(plugin.gather(trigger as Trigger, config, prevState, { ...context, signal, claims }));
+    },
+  }));
+
+  const dispatched = await dispatcher.dispatchAll(dispatchEntries);
+  const gatheredResults = dispatched
+    .filter((entry): entry is { pluginName: string; result: GatherResult } => !!entry.result)
+    .map(({ pluginName, result }) => ({ pluginName, result }));
+
+  const policyInputs: PolicyInput[] = gatheredResults.map(({ pluginName, result }) => ({
+    pluginName,
+    result,
+  }));
+
+  const policy = applyInjectionPolicy(policyInputs, { event });
+
+  await withState((state: PluginState) => {
+    for (const { pluginName, result } of gatheredResults) {
+      state = setPluginState(state, pluginName, result.state);
+    }
+    return state;
+  });
+
+  if (policy.results.length === 0) return '';
+  return render(policy.results);
+}
 ```
 
-The rest of the adapter (createRegistry, manageTicker, run, stop) is identical to the reference implementation in `src/providers/claude-code/adapter.ts`. Copy it.
+## Hooks
 
-## Step 2: Create hook entry points
-
-Hooks are thin wrappers that call your adapter's `run()` function. Each agent has its own way of invoking hooks — the entry points adapt to that.
+Source hook entry points should stay dumb. They call `run()` and format the
+output for the agent surface.
 
 ```typescript
-// hooks/your-agent-session-start.ts
 import { run } from '../src/providers/your-agent/adapter.ts';
-
-if (!process.stdin.isTTY) {
-  process.stdin.resume();
-  process.stdin.on('data', () => {});
-}
 
 const output = await run('session-start');
 if (output) process.stdout.write(output);
 ```
 
-```typescript
-// hooks/your-agent-prompt-submit.ts
-import { run } from '../src/providers/your-agent/adapter.ts';
+If the provider ships a packaged plugin bundle, keep tiny wrappers in
+`<provider>-plugin/hooks/` that import the built hook entry points from `dist/`
+or fall back to repo source during local development.
 
-if (!process.stdin.isTTY) {
-  process.stdin.resume();
-  process.stdin.on('data', () => {});
-}
+If you publish a provider bundle, add a `README.md` inside `<provider>-plugin/`
+that states the real install contract. Packaging a provider bundle does not
+automatically mean that the target agent's plugin browser or marketplace flow
+activates hooks correctly.
 
-const output = await run('prompt');
-if (output) process.stdout.write(output);
-```
+For Codex specifically, the supported hook locations are documented as:
 
-## Step 3: Wire hooks to your agent
+- `~/.codex/hooks.json`
+- `<repo>/.codex/hooks.json`
 
-How you wire these hooks depends on your agent's extension model:
+## Realtime support
 
-### Claude Code
-Uses `hooks/hooks.json` with event-based hook configuration:
-```json
-{
-  "hooks": {
-    "SessionStart": [{ "hooks": [{ "type": "command", "command": "node hooks/session-start.ts" }] }],
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "node hooks/prompt-submit.ts", "async": true }] }]
-  }
-}
-```
+Do not bake realtime delivery into the direct adapter.
 
-### Codex
-Uses configuration or instructions injection — see Codex-specific documentation.
+If an agent later supports a proper realtime path, keep it separate:
 
-### Other agents
-If your agent supports running a command at session start or before each prompt, point it at the hook entry points. The hooks write to stdout — capture that output and inject it into context however your agent supports it.
+1. Tier 1 stays direct hooks
+2. Tier 2 becomes a thin provider-specific transport layer
+3. Shared ticker or daemon code stays provider-agnostic wherever possible
 
-For agents without hook support, you can call the adapter directly from a wrapper script:
-```bash
-# Inject at session start
-AWARENESS=$(node /path/to/agent-awareness/hooks/your-agent-session-start.ts)
-your-agent --instructions "$AWARENESS" "$@"
-```
-
-## Step 4: Add provider-specific plugin logic (optional)
-
-If your agent has provider-specific APIs (like Claude's quota API or Codex's rate limits), add a fetcher to the relevant plugin. The quota plugin uses `context.provider` to dispatch:
-
-```typescript
-const FETCHERS: Record<string, () => Promise<Quota | null>> = {
-  'claude-code': fetchClaudeQuota,
-  'codex': fetchCodexQuota,
-  'your-agent': fetchYourAgentQuota,  // add your fetcher here
-};
-```
-
-Plugins that don't need provider-specific logic work across all providers unchanged.
-
-## Events
-
-The adapter's `run()` function accepts these event strings:
-
-| Event | When to fire |
-|-------|-------------|
-| `session-start` | Agent session begins |
-| `prompt` | User submits a prompt |
-
-The `prompt` event also evaluates `change:hour`, `change:day`, and `interval:*` triggers internally.
+That is already how Claude Code is split in this repo. Codex currently only
+uses Tier 1.
 
 ## Testing
 
+At minimum, cover:
+
+1. State initialization for the provider
+2. Hook output shape
+3. Interval triggers firing inline on prompt
+4. Duplicate fingerprint suppression across session-start and prompt
+5. Claims context wiring on session-start
+
+Run provider tests directly:
+
 ```bash
-# Test your adapter directly
-node hooks/your-agent-session-start.ts
-
-# List discovered plugins
-node src/cli.ts list
+node --test src/providers/your-agent/adapter.test.ts
 ```
-
-## Reference implementations
-
-- `src/providers/claude-code/adapter.ts` — full-featured with ticker management
-- `src/providers/codex/adapter.ts` — identical structure, different provider context

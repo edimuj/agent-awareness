@@ -12,12 +12,12 @@ Modular awareness plugins for AI coding agents.
 - Interval check: if enough time passed since `_updatedAt`, plugin fires on next prompt
 - No ticker, no daemon, no MCP, no PID files
 
-**Tier 2 — Startup hook + MCP** (full experience)
+**Tier 2 — Central daemon + provider bridge** (Claude realtime path)
 - Startup hook same as Tier 1 (one-shot initial context)
-- MCP server handles everything else: intervals, change-detection, channel push
-- Internal ticker runs all `interval:*` and `change:*` triggers periodically
-- Real-time push via `claude/channel` experimental capability
-- No prompt hook needed — MCP channel replaces it
+- Central daemon handles intervals, change-detection, SSE broadcast, and doctor state
+- Provider-specific MCP bridge forwards daemon results into the agent surface
+- Claude Code uses `claude/channel` for realtime push
+- No prompt hook needed on the Claude realtime path
 
 ### Provider isolation
 Each provider gets its own state directory — no shared state, no conflicts:
@@ -39,10 +39,13 @@ Plugins are provider-agnostic — they receive `GatherContext` and don't know wh
 - `src/core/` — Plugin engine: registry, renderer, state, types, dispatcher, loader, lock, claims, log
 - `src/plugins/` — Built-in awareness plugins (one file each, provider-agnostic)
 - `src/providers/claude-code/` — Claude Code adapter (Tier 1 hooks)
-- `src/mcp/server.ts` — MCP server with internal ticker (Tier 2)
-- `src/daemon/tick-loop.ts` — Shared ticker logic used by MCP server
+- `src/providers/codex/` — Codex adapter (Tier 1 hooks)
+- `src/hooks/` — Codex hook entry points compiled into provider packaging
+- `src/mcp/server.ts` — Claude MCP bridge to daemon SSE (Tier 2)
+- `src/daemon/server.ts` — Central daemon server for the Claude realtime path
+- `src/daemon/tick-loop.ts` — Shared ticker logic used by the daemon
 - `src/commands/` — CLI commands (create, doctor, list, mcp)
-- `hooks/` — Source TS hook entry points (dev testing, thin wrappers around adapter)
+- `hooks/` — Claude Code source hook entry points for local dev
 - `config/default.json` — Default plugin configuration
 
 ### Claude Code plugin packaging
@@ -55,38 +58,51 @@ Plugins are provider-agnostic — they receive `GatherContext` and don't know wh
 - `.claude-plugin/marketplace.json` — Marketplace config, npm source: `agent-awareness-claude-plugin`
 - Root has NO `.mcp.json` — avoids project-level MCP conflict during dev
 
+### Codex plugin packaging
+- `codex-plugin/` — Shipped Codex-facing artifact bundle
+  - `codex-plugin/.codex-plugin/plugin.json` — Plugin manifest
+  - `codex-plugin/.codex-mcp.json` — Optional diagnostic MCP config
+  - `codex-plugin/hooks.json` — Hook event config
+  - `codex-plugin/hooks/` — Stable `.mjs` hook entry points
+  - `codex-plugin/README.md` — Codex bundle contract and local-dev notes
+- `agent-awareness codex setup` writes absolute hook commands to user Codex config, but the packaged Codex surface now stays under `codex-plugin/`
+- Codex plugin/browser install can cache and enable the bundle, but it does not activate awareness hooks; setup remains the canonical integration path
+
 ### State initialization
 All state-touching code must call `initStateDir(provider)` before any state operations.
 This sets the provider-scoped `STATE_DIR` and runs one-time migration from old flat layout.
 
 ## Versioning — CRITICAL
-Three version fields exist — **ALL must be bumped together on every release**:
+Five version fields exist — **ALL published surfaces must stay in sync on every release**:
 1. `package.json` `"version"` — npm registry version
 2. `claude-plugin/package.json` `"version"` — npm package version (must match)
 3. `claude-plugin/.claude-plugin/plugin.json` `"version"` — Claude Code plugin manifest
-4. `.codex-plugin/plugin.json` `"version"` — Codex marketplace version
+4. `codex-plugin/package.json` `"version"` — Codex plugin package version
+5. `codex-plugin/.codex-plugin/plugin.json` `"version"` — Codex plugin manifest
 
 ## Publishing a new version
 ```bash
-# 1. Bump version in all three places (e.g. 0.5.0 → 0.6.0)
+# 1. Bump version in all published places (e.g. 0.5.0 → 0.6.0)
 #    - package.json
 #    - claude-plugin/package.json
 #    - claude-plugin/.claude-plugin/plugin.json
-#    - .codex-plugin/plugin.json (if codex is active)
+#    - codex-plugin/package.json
+#    - codex-plugin/.codex-plugin/plugin.json
 
 # 2. Commit and push
 git add -A && git commit -m "release: v0.6.0" && git push
 
-# 3. Publish npm package (runs prepublishOnly → builds dist/)
+# 3. Publish npm packages (each runs prepublishOnly → builds dist/)
 cd claude-plugin && npm publish && cd ..
+cd codex-plugin && npm publish && cd ..
 
 # 4. Update installed plugins across rigs
 claude-rig update-plugins
 ```
 
-The `prepublishOnly` script in `claude-plugin/package.json` runs `cd .. && npm run build`,
-which compiles TS → `dist/` and copies it into `claude-plugin/dist/`. The npm `files` field
-ships only the runtime artifacts (hooks, skills, dist, .mcp.json, .claude-plugin/).
+The `prepublishOnly` script in each provider package runs `cd .. && npm run build`,
+which compiles TS → `dist/` and copies it into `claude-plugin/dist/` and `codex-plugin/dist/`.
+The provider npm `files` fields ship only the runtime artifacts needed by that provider package.
 
 ## Plugin interface
 Each plugin exports: `{ name, description, triggers, defaults, gather(trigger, config, prevState, context) → { text, state } }`
@@ -100,13 +116,13 @@ Each plugin exports: `{ name, description, triggers, defaults, gather(trigger, c
 | `onStop()` | Session ends | Graceful shutdown, flush buffers |
 
 ## Trigger system
-| Trigger | Tier 1 (hooks) | Tier 2 (MCP) |
+| Trigger | Tier 1 (hooks) | Tier 2 (daemon + provider bridge) |
 |---------|---------------|--------------|
 | `session-start` | startup hook | startup hook |
 | `prompt` | prompt hook | not used |
-| `change:hour` | checked on prompt | MCP ticker |
-| `change:day` | checked on prompt | MCP ticker |
-| `interval:Nm` | checked on prompt | MCP ticker + channel push |
+| `change:hour` | checked on prompt | daemon ticker |
+| `change:day` | checked on prompt | daemon ticker |
+| `interval:Nm` | checked on prompt | daemon ticker + channel push |
 
 ## Dispatcher (src/core/dispatcher.ts)
 All plugin execution routes through PluginDispatcher:
@@ -152,8 +168,8 @@ Per-plugin config, layered resolution (each layer deep-merges):
 4. Rig/project: `$AGENT_AWARENESS_CONFIG/plugins.d/<name>.json`
 
 ## MCP server (src/mcp/server.ts)
-- Tier 2 only — stdio transport for Claude Code
-- Runs internal ticker for interval/change triggers
+- Tier 2 only — stdio bridge for Claude Code
+- Connects to the central daemon over SSE
 - Pushes via `claude/channel` capability (real-time, between prompts)
 - Built-in `awareness_doctor` tool
 - Channel dedup via SHA1 fingerprints (in-memory + on-disk)
@@ -173,9 +189,12 @@ agent-awareness mcp status                 # show MCP status
 
 ## Dev commands
 ```bash
-node hooks/session-start.ts     # test session-start (source TS, dev)
-node hooks/prompt-submit.ts     # test prompt-submit (source TS, dev)
+node hooks/session-start.ts     # test Claude session-start (source TS, dev)
+node hooks/prompt-submit.ts     # test Claude prompt-submit (source TS, dev)
+node src/hooks/codex-session-start.ts   # test Codex session-start source hook
+node src/hooks/codex-prompt-submit.ts   # test Codex prompt source hook
 node claude-plugin/hooks/session-start.mjs  # test compiled hook (what users get)
+node codex-plugin/hooks/codex-session-start.mjs  # test packaged Codex hook
 node --test src/**/*.test.ts    # run tests
 npx tsc --noEmit                # type-check
 npm run build                   # emit JS to dist/ + types to types/
@@ -199,4 +218,14 @@ Additional plugins ship from `agent-awareness-plugins` repo
 (`agent-awareness-plugin-*` npm packages, auto-discovered by the loader).
 
 ## Codex provider
-Status: **experimental, not actively maintained**. Source kept at `src/providers/codex/` but not tested or guaranteed to work. Claude Code is the primary supported provider.
+Status: **supported for Tier 1 hooks only**.
+
+- Source hook entry points: `src/hooks/codex-session-start.ts`, `src/hooks/codex-prompt-submit.ts`
+- Packaged hook entry points: `codex-plugin/hooks/codex-session-start.mjs`, `codex-plugin/hooks/codex-prompt-submit.mjs`
+- Direct adapter: `src/providers/codex/adapter.ts`
+- Setup path: `agent-awareness codex setup`
+- Marketplace/plugin install does not wire Codex hook config today
+- Optional MCP: diagnostics only; do not treat it as realtime context injection
+- Bundle docs: `codex-plugin/README.md`
+
+There is no documented Codex equivalent to Claude Code channels in this repo today, so Codex does not use the daemon/SSE path for normal context delivery. Claude Code remains the only provider with realtime channel push.

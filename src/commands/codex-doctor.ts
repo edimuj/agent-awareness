@@ -9,31 +9,27 @@ import {
 } from './codex-common.ts';
 import { resolveServerScript } from './codex-mcp.ts';
 
-interface Check {
+export interface Check {
   name: string;
   ok: boolean;
   detail: string;
 }
 
-function printCheck(check: Check): void {
+function renderCheck(check: Check): string {
   const prefix = check.ok ? '  OK' : '  FAIL';
-  console.log(`${prefix} ${check.name}: ${check.detail}`);
+  return `${prefix} ${check.name}: ${check.detail}`;
 }
 
-export async function codexDoctor(): Promise<void> {
+export async function collectCodexDoctorChecks(): Promise<Check[]> {
   const checks: Check[] = [];
 
-  // Codex CLI present
   const version = await runCodex(['--version']).catch(() => null);
   if (!version || version.code !== 0) {
-    checks.push({
+    return [{
       name: 'codex-cli',
       ok: false,
       detail: 'Codex CLI not available in PATH',
-    });
-    for (const check of checks) printCheck(check);
-    process.exitCode = 1;
-    return;
+    }];
   }
 
   checks.push({
@@ -42,7 +38,6 @@ export async function codexDoctor(): Promise<void> {
     detail: version.stdout.trim() || 'available',
   });
 
-  // Hooks feature status (optional capability)
   const hooksAvailable = await codexHooksFeatureAvailable();
   const hooksEnabled = await codexHooksFeatureEnabled();
   if (hooksAvailable === null || hooksEnabled === null) {
@@ -54,26 +49,31 @@ export async function codexDoctor(): Promise<void> {
   } else if (!hooksAvailable) {
     checks.push({
       name: 'codex-hooks-feature',
-      ok: true,
-      detail: 'not available in this Codex build (hooks optional)',
+      ok: false,
+      detail: 'not available in this Codex build',
+    });
+  } else if (!hooksEnabled) {
+    checks.push({
+      name: 'codex-hooks-feature',
+      ok: false,
+      detail: 'available but disabled (run: agent-awareness codex setup)',
     });
   } else {
     checks.push({
       name: 'codex-hooks-feature',
       ok: true,
-      detail: hooksEnabled ? 'available and enabled' : 'available but disabled',
+      detail: 'available and enabled',
     });
   }
 
-  // MCP registration
   let parsed: ReturnType<typeof parseCodexMcpEntry> | null = null;
   try {
     const entry = await getInstalledCodexMcpEntry();
     if (!entry) {
       checks.push({
         name: 'codex-mcp-entry',
-        ok: false,
-        detail: 'not installed (run: agent-awareness codex mcp install)',
+        ok: true,
+        detail: 'not installed (optional for Codex)',
       });
     } else {
       parsed = parseCodexMcpEntry(entry);
@@ -91,7 +91,6 @@ export async function codexDoctor(): Promise<void> {
     });
   }
 
-  // MCP script path validity
   let scriptPath: string | null = null;
   if (parsed) {
     scriptPath = resolveConfiguredScriptPath(parsed, process.cwd());
@@ -111,7 +110,6 @@ export async function codexDoctor(): Promise<void> {
     }
   }
 
-  // MCP runtime smoke test (list tools + awareness_doctor call)
   if (parsed) {
     const command = parsed.command ?? 'node';
     const args = parsed.args.length > 0 ? parsed.args : [await resolveServerScript()];
@@ -125,16 +123,35 @@ export async function codexDoctor(): Promise<void> {
     });
   }
 
-  console.log('agent-awareness codex doctor');
-  console.log('');
-  for (const check of checks) printCheck(check);
+  return checks;
+}
 
+export function formatCodexDoctorReport(checks: Check[]): { text: string; failed: number } {
   const failed = checks.filter(check => !check.ok).length;
-  console.log('');
+  const lines: string[] = ['agent-awareness codex doctor', ''];
+
+  for (const check of checks) {
+    lines.push(renderCheck(check));
+  }
+
+  lines.push('');
   if (failed === 0) {
-    console.log(`Status: healthy — ${checks.length} checks passed.`);
+    lines.push(`Status: healthy — ${checks.length} checks passed.`);
   } else {
-    console.log(`Status: degraded — ${failed}/${checks.length} checks failed.`);
+    lines.push(`Status: degraded — ${failed}/${checks.length} checks failed.`);
+  }
+
+  return { text: lines.join('\n'), failed };
+}
+
+export async function codexDoctorReport(): Promise<{ text: string; failed: number }> {
+  return formatCodexDoctorReport(await collectCodexDoctorChecks());
+}
+
+export async function codexDoctor(): Promise<void> {
+  const report = await codexDoctorReport();
+  console.log(report.text);
+  if (report.failed > 0) {
     process.exitCode = 1;
   }
 }

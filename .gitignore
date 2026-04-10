@@ -4,6 +4,9 @@ dist/
 claude-plugin/dist/
 claude-plugin/node_modules/
 claude-plugin/package-lock.json
+codex-plugin/dist/
+codex-plugin/node_modules/
+codex-plugin/package-lock.json
 .claude-rig
 share/
 .idea/

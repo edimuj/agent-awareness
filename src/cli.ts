@@ -19,9 +19,9 @@ Commands:
   mcp install       Add MCP server to Claude Code plugin config
   mcp uninstall     Remove MCP server from Claude Code plugin config
   mcp status        Show Claude Code MCP server status
-  codex setup       One-command Codex setup (MCP + optional hooks + smoke test)
-  codex doctor      Diagnose Codex integration health
-  codex mcp ...     Manage Codex MCP server (install|uninstall|status)
+  codex setup       Install the supported Codex hooks integration
+  codex doctor      Diagnose Codex hooks and optional MCP health
+  codex mcp ...     Manage optional Codex MCP server (install|uninstall|status)
   codex hooks ...   Manage Codex hooks (install|uninstall|status) [--global|--project]
 
 Options:

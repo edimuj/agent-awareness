@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ./hooks/codex-session-start.ts",
+            "command": "node ./hooks/codex-session-start.mjs",
             "timeout": 15
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ./hooks/codex-prompt-submit.ts",
+            "command": "node ./hooks/codex-prompt-submit.mjs",
             "timeout": 10
           }
         ]

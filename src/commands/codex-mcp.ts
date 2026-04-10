@@ -12,8 +12,8 @@ import { stat } from 'node:fs/promises';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
-const DIST_SERVER_SCRIPT = join(PROJECT_ROOT, 'dist', 'mcp', 'server.js');
-const SRC_SERVER_SCRIPT = join(PROJECT_ROOT, 'src', 'mcp', 'server.ts');
+const DIST_SERVER_SCRIPT = join(PROJECT_ROOT, 'dist', 'providers', 'codex', 'mcp-server.js');
+const SRC_SERVER_SCRIPT = join(PROJECT_ROOT, 'src', 'providers', 'codex', 'mcp-server.ts');
 export const MCP_ENTRY_KEY = 'agent_awareness';
 export const LEGACY_MCP_ENTRY_KEY = 'agent-awareness';
 

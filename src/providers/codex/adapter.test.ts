@@ -19,6 +19,9 @@ const DISABLED_PLUGIN_NAMES = [
   'server-health',
 ];
 
+const CODEX_SESSION_HOOK = ['codex-plugin/hooks/codex-session-start.mjs'];
+const CODEX_PROMPT_HOOK = ['codex-plugin/hooks/codex-prompt-submit.mjs'];
+
 async function runNode(
   args: string[],
   env: NodeJS.ProcessEnv,
@@ -67,10 +70,7 @@ test('codex hook isolates plugin failures instead of crashing', async () => {
 `,
   );
 
-  const { code, stderr } = await runNode(
-    ['hooks/codex-session-start.ts'],
-    { ...process.env, HOME: tempHome },
-  );
+  const { code, stderr } = await runNode(CODEX_SESSION_HOOK, { ...process.env, HOME: tempHome });
 
   assert.equal(code, 0);
   assert.match(stderr, /\[agent-awareness\] thrower: boom-from-test/);
@@ -80,7 +80,7 @@ test('codex session-start wires claims context and prunes stale claims', async (
   const tempHome = await mkdtemp(join(tmpdir(), 'agent-awareness-home-'));
   const pluginsDir = join(tempHome, '.config', 'agent-awareness', 'plugins');
   const configsDir = join(tempHome, '.config', 'agent-awareness', 'plugins.d');
-  const staleClaim = join(tempHome, '.cache', 'agent-awareness', 'claims', 'stale-plugin', 'expired.json');
+  const staleClaim = join(tempHome, '.cache', 'agent-awareness', 'codex', 'claims', 'stale-plugin', 'expired.json');
 
   await mkdir(pluginsDir, { recursive: true });
   await mkdir(configsDir, { recursive: true });
@@ -115,10 +115,7 @@ test('codex session-start wires claims context and prunes stale claims', async (
 `,
   );
 
-  const { code, stdout } = await runNode(
-    ['hooks/codex-session-start.ts'],
-    { ...process.env, HOME: tempHome },
-  );
+  const { code, stdout } = await runNode(CODEX_SESSION_HOOK, { ...process.env, HOME: tempHome });
 
   assert.equal(code, 0);
   const payload = JSON.parse(stdout);
@@ -160,10 +157,7 @@ test('codex prompt-submit emits valid JSON hook output shape', async () => {
 `,
   );
 
-  const { code, stdout } = await runNode(
-    ['hooks/codex-prompt-submit.ts'],
-    { ...process.env, HOME: tempHome },
-  );
+  const { code, stdout } = await runNode(CODEX_PROMPT_HOOK, { ...process.env, HOME: tempHome });
 
   assert.equal(code, 0);
   const payload = JSON.parse(stdout);
@@ -173,68 +167,64 @@ test('codex prompt-submit emits valid JSON hook output shape', async () => {
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /\|\|/);
 });
 
-test('codex prompt-submit surfaces ticker cache once per gatheredAt', async () => {
+test('codex prompt-submit fires interval plugins inline and respects persisted state', async () => {
   const tempHome = await mkdtemp(join(tmpdir(), 'agent-awareness-home-'));
+  const pluginsDir = join(tempHome, '.config', 'agent-awareness', 'plugins');
   const configsDir = join(tempHome, '.config', 'agent-awareness', 'plugins.d');
-  const cacheDir = join(tempHome, '.cache', 'agent-awareness');
-  const tickerCachePath = join(cacheDir, 'ticker-cache.json');
+  const stateDir = join(tempHome, '.cache', 'agent-awareness', 'codex');
+  const statePath = join(stateDir, 'state.json');
 
+  await mkdir(pluginsDir, { recursive: true });
   await mkdir(configsDir, { recursive: true });
-  await mkdir(cacheDir, { recursive: true });
+  await mkdir(stateDir, { recursive: true });
 
   for (const name of DISABLED_PLUGIN_NAMES) {
     await writeFile(join(configsDir, `${name}.json`), '{ "enabled": false }\n');
   }
 
   await writeFile(
-    tickerCachePath,
-    JSON.stringify({
-      'interval-demo': {
-        text: 'WARNING: Interval payload',
-        gatheredAt: '2026-04-02T08:00:00.000Z',
-      },
-    }) + '\n',
+    join(pluginsDir, 'interval-check.ts'),
+    `export default {
+  name: 'interval-check',
+  description: 'fires inline on prompt',
+  triggers: ['interval:10m'],
+  defaults: { triggers: { 'interval:10m': true } },
+  gather() {
+    return { text: 'WARNING: interval:inline', state: {} };
+  },
+};
+`,
   );
 
-  const first = await runNode(
-    ['hooks/codex-prompt-submit.ts'],
-    { ...process.env, HOME: tempHome },
-  );
+  const first = await runNode(CODEX_PROMPT_HOOK, { ...process.env, HOME: tempHome });
   assert.equal(first.code, 0);
   const firstPayload = JSON.parse(first.stdout);
   assert.deepEqual(firstPayload.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
-  assert.match(String(firstPayload.hookSpecificOutput?.additionalContext ?? ''), /WARNING: Interval payload/);
+  assert.match(String(firstPayload.hookSpecificOutput?.additionalContext ?? ''), /WARNING: interval:inline/);
 
-  const second = await runNode(
-    ['hooks/codex-prompt-submit.ts'],
-    { ...process.env, HOME: tempHome },
-  );
+  const second = await runNode(CODEX_PROMPT_HOOK, { ...process.env, HOME: tempHome });
   assert.equal(second.code, 0);
   assert.equal(second.stdout.trim(), '');
 
   await writeFile(
-    tickerCachePath,
+    statePath,
     JSON.stringify({
-      'interval-demo': {
-        text: 'WARNING: Interval payload',
-        gatheredAt: '2026-04-02T08:10:00.000Z',
+      'interval-check': {
+        _updatedAt: '2020-01-01T00:00:00.000Z',
       },
-    }) + '\n',
+    }, null, 2) + '\n',
   );
 
-  const third = await runNode(
-    ['hooks/codex-prompt-submit.ts'],
-    { ...process.env, HOME: tempHome },
-  );
+  const third = await runNode(CODEX_PROMPT_HOOK, { ...process.env, HOME: tempHome });
   assert.equal(third.code, 0);
   const thirdPayload = JSON.parse(third.stdout);
-  assert.match(String(thirdPayload.hookSpecificOutput?.additionalContext ?? ''), /WARNING: Interval payload/);
+  assert.match(String(thirdPayload.hookSpecificOutput?.additionalContext ?? ''), /WARNING: interval:inline/);
 });
 
-test('codex prompt-submit ignores pre-session ticker cache on first prompt', async () => {
+test('codex prompt-submit ignores stale tier-2 ticker cache files', async () => {
   const tempHome = await mkdtemp(join(tmpdir(), 'agent-awareness-home-'));
   const configsDir = join(tempHome, '.config', 'agent-awareness', 'plugins.d');
-  const cacheDir = join(tempHome, '.cache', 'agent-awareness');
+  const cacheDir = join(tempHome, '.cache', 'agent-awareness', 'codex');
   const tickerCachePath = join(cacheDir, 'ticker-cache.json');
 
   await mkdir(configsDir, { recursive: true });
@@ -247,24 +237,14 @@ test('codex prompt-submit ignores pre-session ticker cache on first prompt', asy
   await writeFile(
     tickerCachePath,
     JSON.stringify({
-      stale: {
-        text: 'Stale payload',
+      stray: {
+        text: 'This should stay ignored',
         gatheredAt: '2020-01-01T00:00:00.000Z',
       },
     }) + '\n',
   );
 
-  const started = await runNode(
-    ['hooks/codex-session-start.ts'],
-    { ...process.env, HOME: tempHome },
-  );
-  assert.equal(started.code, 0);
-  assert.equal(started.stdout.trim(), '');
-
-  const prompt = await runNode(
-    ['hooks/codex-prompt-submit.ts'],
-    { ...process.env, HOME: tempHome },
-  );
+  const prompt = await runNode(CODEX_PROMPT_HOOK, { ...process.env, HOME: tempHome });
   assert.equal(prompt.code, 0);
   assert.equal(prompt.stdout.trim(), '');
 });
@@ -295,18 +275,12 @@ test('codex prompt-submit suppresses duplicate prompt facts already injected at 
 `,
   );
 
-  const started = await runNode(
-    ['hooks/codex-session-start.ts'],
-    { ...process.env, HOME: tempHome },
-  );
+  const started = await runNode(CODEX_SESSION_HOOK, { ...process.env, HOME: tempHome });
   assert.equal(started.code, 0);
   const startPayload = JSON.parse(started.stdout);
   assert.match(String(startPayload.hookSpecificOutput?.additionalContext ?? ''), /FAILED: duplicate fact/);
 
-  const prompt = await runNode(
-    ['hooks/codex-prompt-submit.ts'],
-    { ...process.env, HOME: tempHome },
-  );
+  const prompt = await runNode(CODEX_PROMPT_HOOK, { ...process.env, HOME: tempHome });
   assert.equal(prompt.code, 0);
   assert.equal(prompt.stdout.trim(), '');
 });

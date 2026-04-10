@@ -18,8 +18,8 @@
     }
   },
   "scripts": {
-    "clean": "rm -rf dist types claude-plugin/dist",
-    "build": "npm run clean && tsc -p tsconfig.build.json && cp -r dist claude-plugin/dist",
+    "clean": "rm -rf dist types claude-plugin/dist codex-plugin/dist",
+    "build": "npm run clean && tsc -p tsconfig.build.json && cp -r dist claude-plugin/dist && cp -r dist codex-plugin/dist",
     "prepublishOnly": "npm run build",
     "test": "node --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
@@ -41,8 +41,7 @@
     "config/",
     "claude-plugin/",
     ".claude-plugin/",
-    ".codex-plugin/",
-    ".codex-mcp.json",
+    "codex-plugin/",
     "docs/",
     "README.md"
   ],
