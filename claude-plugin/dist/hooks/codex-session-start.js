@@ -1,0 +1,22 @@
+import { run } from "../providers/codex/adapter.js";
+if (!process.stdin.isTTY) {
+    process.stdin.resume();
+    process.stdin.on('data', () => { });
+}
+function formatForHookContext(text) {
+    return text
+        .split(/\r?\n+/)
+        .map(part => part.trim())
+        .filter(Boolean)
+        .join(' || ');
+}
+const output = await run('session-start');
+if (output) {
+    process.stdout.write(JSON.stringify({
+        suppressOutput: true,
+        hookSpecificOutput: {
+            hookEventName: 'SessionStart',
+            additionalContext: formatForHookContext(output),
+        },
+    }));
+}
