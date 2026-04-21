@@ -1,7 +1,7 @@
 node_modules/
 types/
 dist/
-claude-plugin/dist/
+!claude-plugin/dist/
 claude-plugin/node_modules/
 claude-plugin/package-lock.json
 codex-plugin/dist/

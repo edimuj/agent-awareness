@@ -14,8 +14,7 @@
     "hooks/",
     "skills/",
     "dist/",
-    ".mcp.json",
-    "settings.json"
+    ".mcp.json"
   ],
   "scripts": {
     "prepublishOnly": "cd .. && npm run build"

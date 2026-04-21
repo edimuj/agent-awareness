@@ -11,11 +11,7 @@
   "plugins": [
     {
       "name": "agent-awareness",
-      "source": {
-        "source": "npm",
-        "package": "agent-awareness-claude-plugin",
-        "version": "^0.5.0"
-      },
+      "source": "./claude-plugin",
       "description": "Modular awareness plugins that broaden AI agent context with environmental data"
     }
   ]
