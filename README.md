@@ -48,7 +48,7 @@ For real-world examples, check out [agent-awareness-plugins](https://github.com/
 
 ## Install
 
-As a Claude Code plugin (distributed via npm — dependencies handled automatically):
+As a Claude Code plugin (installed via marketplace):
 
 ```bash
 # Add the marketplace (one-time)
@@ -195,19 +195,14 @@ agent-awareness is a progressive system, but providers do not all expose the sam
 | Mode | Provider | What you get | Setup |
 |------|----------|--------------|-------|
 | **Hooks only** | Claude Code, Codex | Context injection at session start and on prompt. `interval:*` and `change:*` are evaluated inline on prompt. | Default baseline. |
-| **Realtime path** | Claude Code | Central daemon runs interval/change checks once, MCP bridge exposes `awareness_doctor`, and Claude channel notifications push updates between prompts. | Install Claude MCP and launch with channel support. |
+| **Realtime path** | Claude Code | Central daemon runs interval/change checks, Monitor delivers updates mid-conversation. No special flags needed. | Automatic — SessionStart hook starts the Monitor. |
 | **Diagnostics MCP** | Codex | Optional `awareness_doctor` MCP tool only. No realtime delivery, no hook activation. | `agent-awareness codex mcp install` |
 
-On the Claude realtime path, the central daemon is the actual agent-awareness server. It owns the ticker and SSE broadcast. The Claude MCP server is just a thin provider adapter that forwards daemon results into `claude/channel` notifications and exposes diagnostics.
+On the Claude realtime path, a central daemon owns the ticker loop and SSE broadcast. The SessionStart hook instructs Claude to start a persistent Monitor that connects to the daemon's SSE stream. Each plugin result is output to stdout and arrives as a Monitor notification — real-time, mid-conversation, no special flags or channel approvals needed.
 
 Current provider support:
-- Claude Code: hooks baseline plus realtime daemon/MCP/channel path.
+- Claude Code: hooks baseline plus realtime daemon/Monitor path (automatic when daemon is available).
 - Codex: hooks only as the supported awareness path. Optional MCP exists for diagnostics, but it does not provide real-time context injection.
-
-```bash
-# Claude realtime path: launch with channel support
-claude --dangerously-load-development-channels plugin:agent-awareness@agent-awareness
-```
 
 Codex integration:
 ```bash
@@ -305,7 +300,9 @@ A central daemon process runs the ticker loop once per machine for the Claude Co
 - Broadcasts results to all connected sessions via SSE
 - Auto-shuts down after 15 minutes of inactivity
 
-The Claude MCP server does not run the ticker itself. It connects to the daemon SSE stream, forwards results into Claude channel notifications, and exposes `awareness_doctor`.
+The delivery mechanism is Claude Code's built-in Monitor feature. The SessionStart hook instructs Claude to start a persistent `awareness-monitor.mjs` script that connects to the daemon's SSE stream. Each plugin result is output to stdout, which Monitor delivers as a real-time notification. No MCP channels, no `--dangerously-load-development-channels` flag, no special permissions.
+
+On compact/clear, the SessionStart hook re-fires to re-inject context (since Claude lost its context window), but skips the Monitor instruction — the Monitor from the original startup is still running.
 
 Multiple sessions share one daemon — no duplicated API calls, no state races.
 
@@ -346,7 +343,7 @@ agent-awareness doctor    # full health check
 
 **Log file:** `~/.cache/agent-awareness/claude-code/agent-awareness.log` — captures ticker errors, plugin failures, lock contention. Auto-rotates at 256 KB. The `doctor` command shows the log location and file size.
 
-**MCP tool:** `awareness_doctor` — same diagnostics, available to agents.
+**MCP tool:** `awareness_doctor` — same diagnostics, available to agents (requires MCP server; optional).
 
 ## Requirements
 

@@ -12,12 +12,12 @@ Modular awareness plugins for AI coding agents.
 - Interval check: if enough time passed since `_updatedAt`, plugin fires on next prompt
 - No ticker, no daemon, no MCP, no PID files
 
-**Tier 2 — Central daemon + provider bridge** (Claude realtime path)
-- Startup hook same as Tier 1 (one-shot initial context)
+**Tier 2 — Central daemon + Monitor** (Claude realtime path)
+- Startup hook fires `session-start` plugins → injects initial context + instructs Claude to start Monitor
 - Central daemon handles intervals, change-detection, SSE broadcast, and doctor state
-- Provider-specific MCP bridge forwards daemon results into the agent surface
-- Claude Code uses `claude/channel` for realtime push
-- No prompt hook needed on the Claude realtime path
+- `awareness-monitor.mjs` connects to daemon SSE, pipes events to stdout via Claude Code Monitor
+- No MCP channels, no danger flags — Monitor is a built-in Claude Code feature
+- SessionStart `source` field controls Monitor: only emitted on `startup`/`resume`, not `compact`/`clear`
 
 ### Provider isolation
 Each provider gets its own state directory — no shared state, no conflicts:
@@ -26,7 +26,6 @@ Each provider gets its own state directory — no shared state, no conflicts:
   claude-code/          ← all state for Claude Code
     state.json
     ticker-cache.json   (Tier 2 only)
-    channel-seen.json   (Tier 2 only)
     claims/
     agent-awareness.log
     state.lock/
@@ -41,7 +40,7 @@ Plugins are provider-agnostic — they receive `GatherContext` and don't know wh
 - `src/providers/claude-code/` — Claude Code adapter (Tier 1 hooks)
 - `src/providers/codex/` — Codex adapter (Tier 1 hooks)
 - `src/hooks/` — Codex hook entry points compiled into provider packaging
-- `src/mcp/server.ts` — Claude MCP bridge to daemon SSE (Tier 2)
+- `src/mcp/server.ts` — Legacy MCP bridge (optional, for `awareness_doctor` tool only)
 - `src/daemon/server.ts` — Central daemon server for the Claude realtime path
 - `src/daemon/tick-loop.ts` — Shared ticker logic used by the daemon
 - `src/commands/` — CLI commands (create, doctor, list, mcp)
@@ -51,11 +50,13 @@ Plugins are provider-agnostic — they receive `GatherContext` and don't know wh
 ### Claude Code plugin packaging
 - `claude-plugin/` — Shipped plugin artifact (what marketplace installs)
   - `claude-plugin/.claude-plugin/plugin.json` — Plugin manifest
-  - `claude-plugin/hooks/` — Compiled `.mjs` hooks (import from `../../dist/`)
+  - `claude-plugin/hooks/` — Hook scripts: session-start, prompt-submit, awareness-monitor, install-deps
   - `claude-plugin/hooks/hooks.json` — Hook event config
+  - `claude-plugin/hooks/awareness-monitor.mjs` — Long-running SSE client for Monitor-based realtime delivery
   - `claude-plugin/skills/` — Claude Code skills (plugin-guide, troubleshooting)
-  - `claude-plugin/.mcp.json` — MCP server config (uses `CLAUDE_PLUGIN_ROOT`)
-- `.claude-plugin/marketplace.json` — Marketplace config, npm source: `agent-awareness-claude-plugin`
+  - `claude-plugin/.mcp.json` — Optional MCP server config (diagnostic `awareness_doctor` tool only)
+  - `claude-plugin/dist/` — Compiled JS committed to git (required for git-sourced marketplace distribution)
+- `.claude-plugin/marketplace.json` — Marketplace config, git relative source: `./claude-plugin`
 - Root has NO `.mcp.json` — avoids project-level MCP conflict during dev
 
 ### Codex plugin packaging
@@ -116,13 +117,13 @@ Each plugin exports: `{ name, description, triggers, defaults, gather(trigger, c
 | `onStop()` | Session ends | Graceful shutdown, flush buffers |
 
 ## Trigger system
-| Trigger | Tier 1 (hooks) | Tier 2 (daemon + provider bridge) |
+| Trigger | Tier 1 (hooks) | Tier 2 (daemon + Monitor) |
 |---------|---------------|--------------|
-| `session-start` | startup hook | startup hook |
-| `prompt` | prompt hook | not used |
-| `change:hour` | checked on prompt | daemon ticker |
-| `change:day` | checked on prompt | daemon ticker |
-| `interval:Nm` | checked on prompt | daemon ticker + channel push |
+| `session-start` | startup hook | startup hook (+ starts Monitor) |
+| `prompt` | prompt hook | prompt hook |
+| `change:hour` | checked on prompt | daemon ticker �� Monitor notification |
+| `change:day` | checked on prompt | daemon ticker → Monitor notification |
+| `interval:Nm` | checked on prompt | daemon ticker → Monitor notification |
 
 ## Dispatcher (src/core/dispatcher.ts)
 All plugin execution routes through PluginDispatcher:
@@ -167,13 +168,18 @@ Per-plugin config, layered resolution (each layer deep-merges):
 3. User global: `~/.config/agent-awareness/plugins.d/<name>.json`
 4. Rig/project: `$AGENT_AWARENESS_CONFIG/plugins.d/<name>.json`
 
-## MCP server (src/mcp/server.ts)
-- Tier 2 only — stdio bridge for Claude Code
-- Connects to the central daemon over SSE
-- Pushes via `claude/channel` capability (real-time, between prompts)
-- Built-in `awareness_doctor` tool
-- Channel dedup via SHA1 fingerprints (in-memory + on-disk)
-- Session reset detection clears dedup state
+## Monitor-based realtime delivery (Tier 2)
+- `awareness-monitor.mjs` — long-running script started via Claude Code Monitor
+- Connects to daemon SSE, outputs `[awareness:<plugin>] <text>` to stdout
+- Each stdout line becomes a Monitor notification visible to Claude mid-conversation
+- Dedup via SHA1 fingerprints per plugin (in-memory)
+- Auto-reconnects on daemon restart, exits after MAX_RETRIES if daemon unreachable
+- No MCP SDK dependency, no `--dangerously-load-development-channels` flag
+
+## MCP server (src/mcp/server.ts) — legacy/optional
+- Provides `awareness_doctor` diagnostic tool only
+- Realtime delivery has moved to Monitor-based approach (above)
+- Still ships in `.mcp.json` for diagnostics; deps installed via `CLAUDE_PLUGIN_DATA` pattern
 
 ## CLI
 ```bash
@@ -194,6 +200,8 @@ node hooks/prompt-submit.ts     # test Claude prompt-submit (source TS, dev)
 node src/hooks/codex-session-start.ts   # test Codex session-start source hook
 node src/hooks/codex-prompt-submit.ts   # test Codex prompt source hook
 node claude-plugin/hooks/session-start.mjs  # test compiled hook (what users get)
+echo '{"source":"compact"}' | node claude-plugin/hooks/session-start.mjs  # test compact (no Monitor instruction)
+timeout 3 node claude-plugin/hooks/awareness-monitor.mjs  # test monitor script (connects to daemon SSE)
 node codex-plugin/hooks/codex-session-start.mjs  # test packaged Codex hook
 node --test src/**/*.test.ts    # run tests
 npx tsc --noEmit                # type-check
@@ -203,7 +211,8 @@ claude --plugin-dir ./claude-plugin  # test plugin locally (full integration)
 ```
 
 ## Types & build for plugin developers
-- `npm run build` emits JS to `dist/` and `.d.ts` to `types/` (both gitignored)
+- `npm run build` emits JS to `dist/` and `.d.ts` to `types/`
+- `claude-plugin/dist/` is committed to git (required for git-sourced marketplace); root `dist/` and `codex-plugin/dist/` are gitignored
 - `exports` map points to `dist/` so npm consumers get `.js`
 - Core runs raw `.ts` — build output is only for downstream consumers
 - `AwarenessPlugin<TState>` is generic — plugins get typed state without casts
@@ -228,4 +237,4 @@ Status: **supported for Tier 1 hooks only**.
 - Optional MCP: diagnostics only; do not treat it as realtime context injection
 - Bundle docs: `codex-plugin/README.md`
 
-There is no documented Codex equivalent to Claude Code channels in this repo today, so Codex does not use the daemon/SSE path for normal context delivery. Claude Code remains the only provider with realtime channel push.
+Codex does not have an equivalent to Claude Code's Monitor capability, so Codex does not use the daemon/SSE path for realtime context delivery. Claude Code remains the only provider with realtime push (via Monitor).

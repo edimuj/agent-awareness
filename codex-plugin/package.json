@@ -1,6 +1,6 @@
 {
   "name": "agent-awareness-codex-plugin",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "description": "Codex plugin for agent-awareness — modular awareness plugins for AI coding agents",
   "type": "module",
   "license": "MIT",

@@ -289,7 +289,7 @@ async function writePidFile(port) {
         host: '127.0.0.1',
         startedAt: new Date().toISOString(),
         serverScript: fileURLToPath(import.meta.url),
-        version: '0.6.4',
+        version: '0.7.0',
     };
     await writeFile(PID_FILE, JSON.stringify(data, null, 2) + '\n');
 }

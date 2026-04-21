@@ -1,6 +1,6 @@
 {
   "name": "agent-awareness",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "description": "Modular awareness plugins that broaden AI agent context with environmental data",
   "author": {
     "name": "edimuj",
