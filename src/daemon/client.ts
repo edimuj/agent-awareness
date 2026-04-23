@@ -72,6 +72,21 @@ async function ping(host: string, port: number): Promise<boolean> {
   });
 }
 
+function isAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
+async function killProcess(pid: number, timeoutMs = 2000): Promise<void> {
+  try { process.kill(pid, 'SIGTERM'); } catch { return; }
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (!isAlive(pid)) return;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  try { process.kill(pid, 'SIGKILL'); } catch { /* already dead */ }
+  await new Promise(r => setTimeout(r, 100));
+}
+
 /**
  * Spawn the daemon process in the background.
  */
@@ -108,11 +123,7 @@ export async function ensureServer(): Promise<DaemonInfo | null> {
   const info = readPidFile();
 
   if (info) {
-    // Check if process is alive
-    try {
-      process.kill(info.pid, 0);
-    } catch {
-      // Dead process, clean up
+    if (!isAlive(info.pid)) {
       try { unlinkSync(PID_FILE); } catch { /* ignore */ }
       return ensureServer();
     }
@@ -123,9 +134,8 @@ export async function ensureServer(): Promise<DaemonInfo | null> {
     const stale = info.serverScript !== currentScript
       || (currentVersion !== '0.0.0' && info.version !== currentVersion);
     if (stale) {
-      try { process.kill(info.pid, 'SIGTERM'); } catch { /* ignore */ }
+      await killProcess(info.pid);
       try { unlinkSync(PID_FILE); } catch { /* ignore */ }
-      await new Promise(r => setTimeout(r, 500));
       return ensureServer();
     }
 
@@ -135,7 +145,7 @@ export async function ensureServer(): Promise<DaemonInfo | null> {
     }
 
     // Not responsive — kill and restart
-    try { process.kill(info.pid, 'SIGKILL'); } catch { /* ignore */ }
+    await killProcess(info.pid);
     try { unlinkSync(PID_FILE); } catch { /* ignore */ }
   }
 

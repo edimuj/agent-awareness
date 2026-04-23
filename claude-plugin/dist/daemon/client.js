@@ -60,6 +60,34 @@ async function ping(host, port) {
         req.end();
     });
 }
+function isAlive(pid) {
+    try {
+        process.kill(pid, 0);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+async function killProcess(pid, timeoutMs = 2000) {
+    try {
+        process.kill(pid, 'SIGTERM');
+    }
+    catch {
+        return;
+    }
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+        if (!isAlive(pid))
+            return;
+        await new Promise(r => setTimeout(r, 100));
+    }
+    try {
+        process.kill(pid, 'SIGKILL');
+    }
+    catch { /* already dead */ }
+    await new Promise(r => setTimeout(r, 100));
+}
 /**
  * Spawn the daemon process in the background.
  */
@@ -93,12 +121,7 @@ async function waitForReady(maxWaitMs = 5000) {
 export async function ensureServer() {
     const info = readPidFile();
     if (info) {
-        // Check if process is alive
-        try {
-            process.kill(info.pid, 0);
-        }
-        catch {
-            // Dead process, clean up
+        if (!isAlive(info.pid)) {
             try {
                 unlinkSync(PID_FILE);
             }
@@ -111,15 +134,11 @@ export async function ensureServer() {
         const stale = info.serverScript !== currentScript
             || (currentVersion !== '0.0.0' && info.version !== currentVersion);
         if (stale) {
-            try {
-                process.kill(info.pid, 'SIGTERM');
-            }
-            catch { /* ignore */ }
+            await killProcess(info.pid);
             try {
                 unlinkSync(PID_FILE);
             }
             catch { /* ignore */ }
-            await new Promise(r => setTimeout(r, 500));
             return ensureServer();
         }
         // Verify responsive
@@ -127,10 +146,7 @@ export async function ensureServer() {
             return info;
         }
         // Not responsive — kill and restart
-        try {
-            process.kill(info.pid, 'SIGKILL');
-        }
-        catch { /* ignore */ }
+        await killProcess(info.pid);
         try {
             unlinkSync(PID_FILE);
         }
