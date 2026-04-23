@@ -208,7 +208,7 @@ async function gatherForTrigger(trigger: string, cwd: string): Promise<string> {
   const context = await resolveGatherContext('claude-code', cwd);
 
   if (trigger === 'session-start') {
-    await reg.startPlugins();
+    await reloadPlugins();
     await pruneExpiredClaims();
   }
 

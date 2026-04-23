@@ -185,7 +185,7 @@ async function gatherForTrigger(trigger, cwd) {
     const reg = await ensureRegistry();
     const context = await resolveGatherContext('claude-code', cwd);
     if (trigger === 'session-start') {
-        await reg.startPlugins();
+        await reloadPlugins();
         await pruneExpiredClaims();
     }
     const preState = await loadState();

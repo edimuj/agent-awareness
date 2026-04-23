@@ -177,6 +177,13 @@ Per-plugin config, layered resolution (each layer deep-merges):
 - Auto-reconnects on daemon restart, exits after MAX_RETRIES if daemon unreachable
 - No session-start hook instruction, no source-field gating, no MCP SDK dependency
 
+## Plugin hot-reload
+- Daemon supports `POST /reload` — re-discovers all plugin sources, cache-busts ESM imports, runs lifecycle hooks
+- Auto-triggered on every `session-start` gather — new sessions always get fresh plugins
+- Manual: `agent-awareness reload` CLI command or `curl -X POST http://localhost:<port>/reload`
+- Client function: `reloadDaemon()` from `src/daemon/client.ts`
+- `/health` endpoint includes loaded plugin names for observability
+
 ## MCP server (src/mcp/server.ts) — legacy/optional
 - Provides `awareness_doctor` diagnostic tool only
 - Realtime delivery has moved to Monitor-based approach (above)
@@ -189,6 +196,7 @@ agent-awareness create <name> --mcp        # scaffold with MCP tool example
 agent-awareness create <name> --local      # scaffold local plugin
 agent-awareness doctor                     # diagnose plugin loading, config, state
 agent-awareness list                       # show discovered plugins + status
+agent-awareness reload                     # hot-reload plugins in running daemon
 agent-awareness mcp install                # add MCP server to Claude Code plugin config
 agent-awareness mcp uninstall              # remove MCP server
 agent-awareness mcp status                 # show MCP status

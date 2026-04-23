@@ -9,6 +9,7 @@ import { create } from './commands/create.ts';
 import { doctor } from './commands/doctor.ts';
 import { list } from './commands/list.ts';
 import { mcpInstall, mcpUninstall, mcpStatus } from './commands/mcp.ts';
+import { reloadDaemon } from './daemon/client.ts';
 
 const USAGE = `agent-awareness — modular awareness plugins for AI coding agents
 
@@ -16,6 +17,7 @@ Commands:
   create <name>     Scaffold a new awareness plugin
   doctor            Diagnose plugin loading, config, and log status
   list              Show all discovered plugins and their status
+  reload            Hot-reload plugins in the running daemon
   mcp install       Add MCP server to Claude Code plugin config
   mcp uninstall     Remove MCP server from Claude Code plugin config
   mcp status        Show Claude Code MCP server status
@@ -84,6 +86,18 @@ switch (command) {
   }
   case 'list': {
     await list();
+    break;
+  }
+  case 'reload': {
+    const result = await reloadDaemon();
+    if (!result) {
+      console.error('No daemon running — nothing to reload');
+      process.exit(1);
+    }
+    console.log(`Reloaded ${result.loaded.length} plugins: ${result.loaded.join(', ')}`);
+    if (result.errors.length) {
+      for (const err of result.errors) console.error(`  error: ${err}`);
+    }
     break;
   }
   case 'mcp': {

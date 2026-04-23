@@ -189,6 +189,40 @@ export async function gatherFromDaemon(info, trigger, cwd) {
     });
 }
 /**
+ * POST /reload — tell the daemon to re-discover and re-import all plugins.
+ * Returns { ok, loaded, errors } or null if no daemon is running.
+ */
+export async function reloadDaemon() {
+    const info = readPidFile();
+    if (!info)
+        return null;
+    if (!isAlive(info.pid))
+        return null;
+    return new Promise((resolve, reject) => {
+        const req = request({
+            host: info.host,
+            port: info.port,
+            path: '/reload',
+            method: 'POST',
+            timeout: 10_000,
+        }, res => {
+            const chunks = [];
+            res.on('data', chunk => chunks.push(chunk));
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+                }
+                catch {
+                    resolve(null);
+                }
+            });
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+        req.end();
+    });
+}
+/**
  * GET /events — connect to daemon SSE stream. Used by MCP server.
  * Returns the HTTP response for streaming, or null on failure.
  *
