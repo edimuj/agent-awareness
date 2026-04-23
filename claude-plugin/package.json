@@ -1,6 +1,6 @@
 {
   "name": "agent-awareness-claude-plugin",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "description": "Claude Code plugin for agent-awareness — modular awareness plugins for AI coding agents",
   "type": "module",
   "license": "MIT",
@@ -14,13 +14,9 @@
     "hooks/",
     "monitors/",
     "skills/",
-    "dist/",
-    ".mcp.json"
+    "dist/"
   ],
   "scripts": {
     "prepublishOnly": "cd .. && npm run build"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.28.0"
   }
 }

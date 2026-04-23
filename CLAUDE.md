@@ -40,7 +40,6 @@ Plugins are provider-agnostic — they receive `GatherContext` and don't know wh
 - `src/providers/claude-code/` — Claude Code adapter (Tier 1 hooks)
 - `src/providers/codex/` — Codex adapter (Tier 1 hooks)
 - `src/hooks/` — Codex hook entry points compiled into provider packaging
-- `src/mcp/server.ts` — Legacy MCP bridge (optional, for `awareness_doctor` tool only)
 - `src/daemon/server.ts` — Central daemon server for the Claude realtime path
 - `src/daemon/tick-loop.ts` — Shared ticker logic used by the daemon
 - `src/commands/` — CLI commands (create, doctor, list, mcp)
@@ -50,15 +49,13 @@ Plugins are provider-agnostic — they receive `GatherContext` and don't know wh
 ### Claude Code plugin packaging
 - `claude-plugin/` — Shipped plugin artifact (what marketplace installs)
   - `claude-plugin/.claude-plugin/plugin.json` — Plugin manifest
-  - `claude-plugin/hooks/` — Hook scripts: session-start, prompt-submit, install-deps
+  - `claude-plugin/hooks/` — Hook scripts: session-start, prompt-submit
   - `claude-plugin/hooks/hooks.json` — Hook event config
   - `claude-plugin/hooks/awareness-monitor.mjs` — Long-running SSE client for realtime delivery
   - `claude-plugin/monitors/monitors.json` — Declarative monitor config (auto-starts awareness-monitor.mjs)
   - `claude-plugin/skills/` — Claude Code skills (plugin-guide, troubleshooting)
-  - `claude-plugin/.mcp.json` — Optional MCP server config (diagnostic `awareness_doctor` tool only)
   - `claude-plugin/dist/` — Compiled JS committed to git (required for git-sourced marketplace distribution)
 - `.claude-plugin/marketplace.json` — Marketplace config, git relative source: `./claude-plugin`
-- Root has NO `.mcp.json` — avoids project-level MCP conflict during dev
 
 ### Codex plugin packaging
 - `codex-plugin/` — Shipped Codex-facing artifact bundle
@@ -184,22 +181,13 @@ Per-plugin config, layered resolution (each layer deep-merges):
 - Client function: `reloadDaemon()` from `src/daemon/client.ts`
 - `/health` endpoint includes loaded plugin names for observability
 
-## MCP server (src/mcp/server.ts) — legacy/optional
-- Provides `awareness_doctor` diagnostic tool only
-- Realtime delivery has moved to Monitor-based approach (above)
-- Still ships in `.mcp.json` for diagnostics; deps installed via `CLAUDE_PLUGIN_DATA` pattern
-
 ## CLI
 ```bash
 agent-awareness create <name>              # scaffold npm plugin package
-agent-awareness create <name> --mcp        # scaffold with MCP tool example
 agent-awareness create <name> --local      # scaffold local plugin
 agent-awareness doctor                     # diagnose plugin loading, config, state
 agent-awareness list                       # show discovered plugins + status
 agent-awareness reload                     # hot-reload plugins in running daemon
-agent-awareness mcp install                # add MCP server to Claude Code plugin config
-agent-awareness mcp uninstall              # remove MCP server
-agent-awareness mcp status                 # show MCP status
 ```
 
 ## Dev commands

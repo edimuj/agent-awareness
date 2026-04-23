@@ -8,7 +8,6 @@ import { codexSetup } from './commands/codex-setup.ts';
 import { create } from './commands/create.ts';
 import { doctor } from './commands/doctor.ts';
 import { list } from './commands/list.ts';
-import { mcpInstall, mcpUninstall, mcpStatus } from './commands/mcp.ts';
 import { reloadDaemon } from './daemon/client.ts';
 
 const USAGE = `agent-awareness — modular awareness plugins for AI coding agents
@@ -18,9 +17,6 @@ Commands:
   doctor            Diagnose plugin loading, config, and log status
   list              Show all discovered plugins and their status
   reload            Hot-reload plugins in the running daemon
-  mcp install       Add MCP server to Claude Code plugin config
-  mcp uninstall     Remove MCP server from Claude Code plugin config
-  mcp status        Show Claude Code MCP server status
   codex setup       Install the supported Codex hooks integration
   codex doctor      Diagnose Codex hooks and optional MCP health
   codex mcp ...     Manage optional Codex MCP server (install|uninstall|status)
@@ -97,24 +93,6 @@ switch (command) {
     console.log(`Reloaded ${result.loaded.length} plugins: ${result.loaded.join(', ')}`);
     if (result.errors.length) {
       for (const err of result.errors) console.error(`  error: ${err}`);
-    }
-    break;
-  }
-  case 'mcp': {
-    const sub = positionals[1];
-    switch (sub) {
-      case 'install':
-        await mcpInstall();
-        break;
-      case 'uninstall':
-        await mcpUninstall();
-        break;
-      case 'status':
-        await mcpStatus();
-        break;
-      default:
-        console.error(`Unknown mcp subcommand: ${sub ?? '(none)'}\nUsage: agent-awareness mcp [install|uninstall|status]`);
-        process.exit(2);
     }
     break;
   }
