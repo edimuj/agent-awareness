@@ -87,7 +87,8 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
-      json(res, { status: 'ok', version: getPackageVersion(), sessions: sessions.size, sseClients: sseClients.size, uptime: process.uptime() });
+      const plugins = registry?.pluginNames() ?? [];
+      json(res, { status: 'ok', version: getPackageVersion(), plugins, sessions: sessions.size, sseClients: sseClients.size, uptime: process.uptime() });
       return;
     }
 
@@ -138,6 +139,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
       return;
     }
 
+    if (req.method === 'POST' && url.pathname === '/reload') {
+      const result = await reloadPlugins();
+      json(res, { ok: true, ...result });
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/session/register') {
       const body = await readBody(req);
       if (body.sessionId) sessions.add(body.sessionId);
@@ -176,6 +183,24 @@ async function ensureRegistry(): Promise<Registry> {
   }
   await registry.loadConfig(DEFAULT_CONFIG);
   return registry;
+}
+
+async function reloadPlugins(): Promise<{ loaded: string[], errors: string[] }> {
+  const reg = await ensureRegistry();
+  await reg.stopPlugins();
+  reg.clear();
+  const { plugins, errors } = await loadPlugins({ bustCache: true });
+  for (const plugin of plugins) reg.register(plugin);
+  for (const { source, error } of errors) {
+    console.error(`[daemon] reload error: ${source}: ${error}`);
+  }
+  await reg.loadConfig(DEFAULT_CONFIG);
+  await reg.startPlugins();
+  console.error(`[daemon] reloaded ${plugins.length} plugins`);
+  return {
+    loaded: reg.pluginNames(),
+    errors: errors.map(e => `${e.source}: ${e.error}`),
+  };
 }
 
 async function gatherForTrigger(trigger: string, cwd: string): Promise<string> {

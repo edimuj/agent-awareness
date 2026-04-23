@@ -15,6 +15,12 @@ export class Registry {
     register(plugin) {
         this.#plugins.set(plugin.name, plugin);
     }
+    clear() {
+        this.#plugins.clear();
+    }
+    pluginNames() {
+        return [...this.#plugins.keys()];
+    }
     async loadConfig(defaultConfigPath) {
         this.#defaultConfigPath = defaultConfigPath;
         // 1. Package defaults (config/default.json)

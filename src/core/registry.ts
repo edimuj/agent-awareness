@@ -42,6 +42,14 @@ export class Registry {
     this.#plugins.set(plugin.name, plugin);
   }
 
+  clear(): void {
+    this.#plugins.clear();
+  }
+
+  pluginNames(): string[] {
+    return [...this.#plugins.keys()];
+  }
+
   async loadConfig(defaultConfigPath: string): Promise<void> {
     this.#defaultConfigPath = defaultConfigPath;
 

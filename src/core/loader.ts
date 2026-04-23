@@ -26,7 +26,8 @@ export interface LoadResult {
  *
  * Invalid plugins are collected in errors, never thrown.
  */
-export async function loadPlugins(): Promise<LoadResult> {
+export async function loadPlugins(opts?: { bustCache?: boolean }): Promise<LoadResult> {
+  loadPlugins.bustCache = opts?.bustCache ?? false;
   const errors: LoadResult['errors'] = [];
   const plugins: AwarenessPlugin[] = [];
 
@@ -56,6 +57,7 @@ export async function loadPlugins(): Promise<LoadResult> {
 
   return { plugins: [...seen.values()], errors };
 }
+loadPlugins.bustCache = false;
 
 /** Load plugin files (.ts/.js/.mjs) and directories (index.ts/index.js/index.mjs). */
 async function loadFromDirectory(
@@ -247,7 +249,8 @@ async function importPlugin(
   label: string,
   errors: LoadResult['errors'],
 ): Promise<AwarenessPlugin[]> {
-  const mod = await import(modulePath);
+  const cacheBust = loadPlugins.bustCache ? `?v=${Date.now()}` : '';
+  const mod = await import(modulePath + cacheBust);
   const exported = mod.default;
 
   if (!exported) {

@@ -1,5 +1,5 @@
 {
   "name": "agent-awareness",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Modular awareness plugins that broaden AI agent context with environmental data"
 }

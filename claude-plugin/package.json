@@ -1,6 +1,6 @@
 {
   "name": "agent-awareness-claude-plugin",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Claude Code plugin for agent-awareness — modular awareness plugins for AI coding agents",
   "type": "module",
   "license": "MIT",

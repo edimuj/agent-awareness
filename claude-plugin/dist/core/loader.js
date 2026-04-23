@@ -26,7 +26,8 @@ const NPM_PREFIX = 'agent-awareness-plugin-';
  *
  * Invalid plugins are collected in errors, never thrown.
  */
-export async function loadPlugins() {
+export async function loadPlugins(opts) {
+    loadPlugins.bustCache = opts?.bustCache ?? false;
     const errors = [];
     const plugins = [];
     const sources = await Promise.all([
@@ -54,6 +55,7 @@ export async function loadPlugins() {
     }
     return { plugins: [...seen.values()], errors };
 }
+loadPlugins.bustCache = false;
 /** Load plugin files (.ts/.js/.mjs) and directories (index.ts/index.js/index.mjs). */
 async function loadFromDirectory(dir, source, errors) {
     const plugins = [];
@@ -229,7 +231,8 @@ async function resolvePackageEntry(pkgDir) {
 }
 /** Import a module and extract plugin(s) from default export. Handles single and array exports. */
 async function importPlugin(modulePath, label, errors) {
-    const mod = await import(__rewriteRelativeImportExtension(modulePath));
+    const cacheBust = loadPlugins.bustCache ? `?v=${Date.now()}` : '';
+    const mod = await import(__rewriteRelativeImportExtension(modulePath + cacheBust));
     const exported = mod.default;
     if (!exported) {
         errors.push({ source: label, error: 'No default export' });
