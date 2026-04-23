@@ -27,6 +27,7 @@ export function applyInjectionPolicy(inputs, options) {
             if (selected.length === 0 && remaining > 20) {
                 const truncated = truncate(text, remaining);
                 selected.push({
+                    pluginName: fact.pluginName,
                     text: truncated,
                     severity: fact.severity,
                     channel: fact.channel,
@@ -39,6 +40,7 @@ export function applyInjectionPolicy(inputs, options) {
             break;
         }
         selected.push({
+            pluginName: fact.pluginName,
             text,
             severity: fact.severity,
             channel: fact.channel,
@@ -92,6 +94,7 @@ function normalizeFacts(inputs) {
                 ? `${providedFp}:${i}`
                 : hashFingerprint(`${entry.pluginName}:${text}`);
             facts.push({
+                pluginName: entry.pluginName,
                 text,
                 severity,
                 channel,

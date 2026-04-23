@@ -3,6 +3,7 @@ export type { PolicyConfig } from './registry.ts';
 export { PluginDispatcher } from './dispatcher.ts';
 export type { DispatcherOptions, PluginLimits, Executor } from './dispatcher.ts';
 export { render } from './renderer.ts';
+export type { RenderOptions } from './renderer.ts';
 export { initStateDir, STATE_DIR, loadState, saveState, getPluginState, setPluginState, withState, loadTickerCache, saveTickerCache, writeTickerPid, readTickerPid, clearTickerPid, loadChannelSeen, saveChannelSeen, clearChannelSeen } from './state.ts';
 export type { TickerCache } from './state.ts';
 export { withStateLock } from './lock.ts';
@@ -13,5 +14,5 @@ export type { ApplyPolicyOptions, ApplyPolicyResult, PolicyInput, PolicyMetaStat
 export { loadPlugins } from './loader.ts';
 export { logToFile, openLogFd } from './log.ts';
 export { TRIGGERS, parseInterval } from './types.ts';
-export type { AwarenessChannel, AwarenessPlugin, AwarenessSeverity, GatherContext, GatherResult, McpInputSchema, McpToolDef, PluginConfig, PluginState, Trigger } from './types.ts';
+export type { AwarenessChannel, AwarenessPlugin, AwarenessSeverity, GatherContext, GatherResult, PluginConfig, PluginState, Trigger } from './types.ts';
 export type { LoadResult } from './loader.ts';

@@ -22,7 +22,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { writeFile, unlink, readFile, mkdir } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -46,6 +46,16 @@ const DEFAULT_CONFIG = join(PROJECT_ROOT, 'config', 'default.json');
 const DAEMON_DIR = join(homedir(), '.cache', 'agent-awareness');
 const PID_FILE = join(DAEMON_DIR, 'daemon.pid');
 const INACTIVITY_TIMEOUT = 15 * 60 * 1000; // 15 minutes
+
+function getPackageVersion(): string {
+  try {
+    const pkgPath = join(PROJECT_ROOT, 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 // --- SSE client tracking ---
 
@@ -77,7 +87,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
-      json(res, { status: 'ok', sessions: sessions.size, uptime: process.uptime() });
+      json(res, { status: 'ok', version: getPackageVersion(), sessions: sessions.size, sseClients: sseClients.size, uptime: process.uptime() });
       return;
     }
 
@@ -217,7 +227,7 @@ async function gatherForTrigger(trigger: string, cwd: string): Promise<string> {
   });
 
   if (policy.results.length === 0) return '';
-  return render(policy.results);
+  return render(policy.results, { showPluginNames: policyConfig.showPluginNames });
 }
 
 // --- Ticker (background interval polling) ---
@@ -254,10 +264,20 @@ async function startTicker(): Promise<void> {
 
 // --- Inactivity shutdown ---
 
+function pruneDeadConnections(): void {
+  for (const client of sseClients) {
+    if (client.res.destroyed || client.res.writableEnded) {
+      sseClients.delete(client);
+      sessions.delete(client.sessionId);
+    }
+  }
+}
+
 function startInactivityMonitor(): void {
   const check = setInterval(() => {
+    pruneDeadConnections();
     const idle = Date.now() - lastActivity;
-    if (sessions.size === 0 && idle > INACTIVITY_TIMEOUT) {
+    if (sessions.size === 0 && sseClients.size === 0 && idle > INACTIVITY_TIMEOUT) {
       console.error(`[daemon] no sessions for ${Math.round(idle / 1000)}s, shutting down`);
       shutdown();
     }
@@ -333,7 +353,7 @@ async function writePidFile(port: number): Promise<void> {
     host: '127.0.0.1',
     startedAt: new Date().toISOString(),
     serverScript: fileURLToPath(import.meta.url),
-    version: '0.7.0',
+    version: getPackageVersion(),
   };
   await writeFile(PID_FILE, JSON.stringify(data, null, 2) + '\n');
 }

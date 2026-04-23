@@ -77,9 +77,7 @@ export async function doctor(): Promise<void> {
     for (const plugin of plugins) {
       const enabled = registry.isEnabled(plugin.name);
       const status = enabled ? '  OK' : 'SKIP';
-      const mcpCount = plugin.mcp?.tools?.length ?? 0;
-      const mcpStr = mcpCount > 0 ? ` [${mcpCount} MCP tool${mcpCount > 1 ? 's' : ''}]` : '';
-      console.log(`    ${status}  ${plugin.name.padEnd(nameWidth)} ${plugin.description}${mcpStr}`);
+      console.log(`    ${status}  ${plugin.name.padEnd(nameWidth)} ${plugin.description}`);
     }
   }
 

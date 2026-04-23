@@ -155,7 +155,7 @@ export async function run(event: string): Promise<string> {
   }
 
   if (policy.results.length === 0) return '';
-  return render(policy.results);
+  return render(policy.results, { showPluginNames: policyConfig.showPluginNames });
 }
 
 /**

@@ -12,9 +12,19 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const PROJECT_ROOT = join(__dirname, '..', '..');
 const DAEMON_DIR = join(homedir(), '.cache', 'agent-awareness');
 const PID_FILE = join(DAEMON_DIR, 'daemon.pid');
 const SERVER_SCRIPT = join(__dirname, 'server.ts');
+function getInstalledVersion() {
+    try {
+        const pkg = JSON.parse(readFileSync(join(PROJECT_ROOT, 'package.json'), 'utf8'));
+        return pkg.version ?? '0.0.0';
+    }
+    catch {
+        return '0.0.0';
+    }
+}
 // Also check for compiled version (when running from dist/)
 function getServerScript() {
     // Prefer .js (compiled) if it exists, fallback to .ts (dev)
@@ -95,9 +105,12 @@ export async function ensureServer() {
             catch { /* ignore */ }
             return ensureServer();
         }
-        // Check version mismatch (plugin was updated)
+        // Check version or script mismatch (plugin was updated)
         const currentScript = getServerScript();
-        if (info.serverScript !== currentScript) {
+        const currentVersion = getInstalledVersion();
+        const stale = info.serverScript !== currentScript
+            || (currentVersion !== '0.0.0' && info.version !== currentVersion);
+        if (stale) {
             try {
                 process.kill(info.pid, 'SIGTERM');
             }
@@ -106,7 +119,7 @@ export async function ensureServer() {
                 unlinkSync(PID_FILE);
             }
             catch { /* ignore */ }
-            await new Promise(r => setTimeout(r, 300));
+            await new Promise(r => setTimeout(r, 500));
             return ensureServer();
         }
         // Verify responsive

@@ -128,7 +128,7 @@ export async function run(event) {
     }
     if (policy.results.length === 0)
         return '';
-    return render(policy.results);
+    return render(policy.results, { showPluginNames: policyConfig.showPluginNames });
 }
 /**
  * Graceful shutdown — call onStop() on all plugins.

@@ -27,6 +27,7 @@ export interface ApplyPolicyOptions {
 }
 
 interface PolicyFact {
+  pluginName: string;
   text: string;
   severity: AwarenessSeverity;
   channel: AwarenessChannel;
@@ -68,6 +69,7 @@ export function applyInjectionPolicy(
       if (selected.length === 0 && remaining > 20) {
         const truncated = truncate(text, remaining);
         selected.push({
+          pluginName: fact.pluginName,
           text: truncated,
           severity: fact.severity,
           channel: fact.channel,
@@ -81,6 +83,7 @@ export function applyInjectionPolicy(
     }
 
     selected.push({
+      pluginName: fact.pluginName,
       text,
       severity: fact.severity,
       channel: fact.channel,
@@ -142,6 +145,7 @@ function normalizeFacts(inputs: PolicyInput[]): PolicyFact[] {
         : hashFingerprint(`${entry.pluginName}:${text}`);
 
       facts.push({
+        pluginName: entry.pluginName,
         text,
         severity,
         channel,

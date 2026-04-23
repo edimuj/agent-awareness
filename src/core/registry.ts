@@ -10,6 +10,7 @@ const USER_PLUGINS_D = join(USER_CONFIG_DIR, 'plugins.d');
 export interface PolicyConfig {
   maxCharsSessionStart?: number;
   maxCharsPrompt?: number;
+  showPluginNames?: boolean;
 }
 
 /**

@@ -1,7 +1,8 @@
 {
   "policy": {
     "maxCharsSessionStart": 800,
-    "maxCharsPrompt": 500
+    "maxCharsPrompt": 500,
+    "showPluginNames": true
   },
   "plugins": {
     "time-date": {
