@@ -13,11 +13,11 @@ Modular awareness plugins for AI coding agents.
 - No ticker, no daemon, no MCP, no PID files
 
 **Tier 2 — Central daemon + Monitor** (Claude realtime path)
-- Startup hook fires `session-start` plugins → injects initial context + instructs Claude to start Monitor
+- Startup hook fires `session-start` plugins → injects initial context
+- Declarative monitor (`monitors/monitors.json`) auto-starts `awareness-monitor.mjs` — no hook instruction needed
 - Central daemon handles intervals, change-detection, SSE broadcast, and doctor state
 - `awareness-monitor.mjs` connects to daemon SSE, pipes events to stdout via Claude Code Monitor
 - No MCP channels, no danger flags — Monitor is a built-in Claude Code feature
-- SessionStart `source` field controls Monitor: only emitted on `startup`/`resume`, not `compact`/`clear`
 
 ### Provider isolation
 Each provider gets its own state directory — no shared state, no conflicts:
@@ -50,9 +50,10 @@ Plugins are provider-agnostic — they receive `GatherContext` and don't know wh
 ### Claude Code plugin packaging
 - `claude-plugin/` — Shipped plugin artifact (what marketplace installs)
   - `claude-plugin/.claude-plugin/plugin.json` — Plugin manifest
-  - `claude-plugin/hooks/` — Hook scripts: session-start, prompt-submit, awareness-monitor, install-deps
+  - `claude-plugin/hooks/` — Hook scripts: session-start, prompt-submit, install-deps
   - `claude-plugin/hooks/hooks.json` — Hook event config
-  - `claude-plugin/hooks/awareness-monitor.mjs` — Long-running SSE client for Monitor-based realtime delivery
+  - `claude-plugin/hooks/awareness-monitor.mjs` — Long-running SSE client for realtime delivery
+  - `claude-plugin/monitors/monitors.json` — Declarative monitor config (auto-starts awareness-monitor.mjs)
   - `claude-plugin/skills/` — Claude Code skills (plugin-guide, troubleshooting)
   - `claude-plugin/.mcp.json` — Optional MCP server config (diagnostic `awareness_doctor` tool only)
   - `claude-plugin/dist/` — Compiled JS committed to git (required for git-sourced marketplace distribution)
@@ -169,12 +170,12 @@ Per-plugin config, layered resolution (each layer deep-merges):
 4. Rig/project: `$AGENT_AWARENESS_CONFIG/plugins.d/<name>.json`
 
 ## Monitor-based realtime delivery (Tier 2)
-- `awareness-monitor.mjs` — long-running script started via Claude Code Monitor
-- Connects to daemon SSE, outputs `[awareness:<plugin>] <text>` to stdout
+- Declarative monitor in `claude-plugin/monitors/monitors.json` — Claude Code auto-starts it at session start
+- `awareness-monitor.mjs` connects to daemon SSE, outputs `[awareness:<plugin>] <text>` to stdout
 - Each stdout line becomes a Monitor notification visible to Claude mid-conversation
 - Dedup via SHA1 fingerprints per plugin (in-memory)
 - Auto-reconnects on daemon restart, exits after MAX_RETRIES if daemon unreachable
-- No MCP SDK dependency, no `--dangerously-load-development-channels` flag
+- No session-start hook instruction, no source-field gating, no MCP SDK dependency
 
 ## MCP server (src/mcp/server.ts) — legacy/optional
 - Provides `awareness_doctor` diagnostic tool only
@@ -200,7 +201,6 @@ node hooks/prompt-submit.ts     # test Claude prompt-submit (source TS, dev)
 node src/hooks/codex-session-start.ts   # test Codex session-start source hook
 node src/hooks/codex-prompt-submit.ts   # test Codex prompt source hook
 node claude-plugin/hooks/session-start.mjs  # test compiled hook (what users get)
-echo '{"source":"compact"}' | node claude-plugin/hooks/session-start.mjs  # test compact (no Monitor instruction)
 timeout 3 node claude-plugin/hooks/awareness-monitor.mjs  # test monitor script (connects to daemon SSE)
 node codex-plugin/hooks/codex-session-start.mjs  # test packaged Codex hook
 node --test src/**/*.test.ts    # run tests

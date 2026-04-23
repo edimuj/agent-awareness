@@ -195,10 +195,10 @@ agent-awareness is a progressive system, but providers do not all expose the sam
 | Mode | Provider | What you get | Setup |
 |------|----------|--------------|-------|
 | **Hooks only** | Claude Code, Codex | Context injection at session start and on prompt. `interval:*` and `change:*` are evaluated inline on prompt. | Default baseline. |
-| **Realtime path** | Claude Code | Central daemon runs interval/change checks, Monitor delivers updates mid-conversation. No special flags needed. | Automatic — SessionStart hook starts the Monitor. |
+| **Realtime path** | Claude Code | Central daemon runs interval/change checks, declarative Monitor delivers updates mid-conversation. No special flags needed. | Automatic — plugin monitor starts with session. |
 | **Diagnostics MCP** | Codex | Optional `awareness_doctor` MCP tool only. No realtime delivery, no hook activation. | `agent-awareness codex mcp install` |
 
-On the Claude realtime path, a central daemon owns the ticker loop and SSE broadcast. The SessionStart hook instructs Claude to start a persistent Monitor that connects to the daemon's SSE stream. Each plugin result is output to stdout and arrives as a Monitor notification — real-time, mid-conversation, no special flags or channel approvals needed.
+On the Claude realtime path, a central daemon owns the ticker loop and SSE broadcast. A declarative plugin monitor (`monitors/monitors.json`) auto-starts `awareness-monitor.mjs` when the plugin is active — no hook instructions, no manual Monitor startup. Each plugin result is output to stdout and arrives as a Monitor notification — real-time, mid-conversation, no special flags or channel approvals needed.
 
 Current provider support:
 - Claude Code: hooks baseline plus realtime daemon/Monitor path (automatic when daemon is available).
@@ -300,9 +300,7 @@ A central daemon process runs the ticker loop once per machine for the Claude Co
 - Broadcasts results to all connected sessions via SSE
 - Auto-shuts down after 15 minutes of inactivity
 
-The delivery mechanism is Claude Code's built-in Monitor feature. The SessionStart hook instructs Claude to start a persistent `awareness-monitor.mjs` script that connects to the daemon's SSE stream. Each plugin result is output to stdout, which Monitor delivers as a real-time notification. No MCP channels, no `--dangerously-load-development-channels` flag, no special permissions.
-
-On compact/clear, the SessionStart hook re-fires to re-inject context (since Claude lost its context window), but skips the Monitor instruction — the Monitor from the original startup is still running.
+The delivery mechanism is Claude Code's declarative plugin monitors. The plugin declares a monitor in `monitors/monitors.json` that Claude Code auto-starts at session start. The `awareness-monitor.mjs` script connects to the daemon's SSE stream and outputs plugin results to stdout, which Monitor delivers as real-time notifications. No MCP channels, no `--dangerously-load-development-channels` flag, no special permissions, no hook instructions to parse.
 
 Multiple sessions share one daemon — no duplicated API calls, no state races.
 
@@ -348,6 +346,7 @@ agent-awareness doctor    # full health check
 ## Requirements
 
 - Node.js 24+ (runs TypeScript natively — no build step)
+- Claude Code v2.1.105+ (required for declarative plugin monitors on the realtime path)
 
 ## License
 
