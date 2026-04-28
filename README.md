@@ -2,7 +2,7 @@
 
 Your AI coding agent is blind. It doesn't know what time it is, that it's burning through quota, that a deploy just failed, or that your toddler's nap ends in 20 minutes.
 
-**agent-awareness** gives agents senses. A plugin system that injects real-world context into AI coding agents. Anything you can query with code, your agent can know about. Continuously.
+**agent-awareness** gives agents senses. A plugin system that injects real-world context into AI coding agents, not just at startup but continuously throughout the session. A background daemon monitors your plugins on schedule and pushes updates to the agent in real time. Your agent's world view stays current without you doing anything.
 
 ```
 [agent-awareness]
@@ -42,7 +42,7 @@ For real-world examples, check out [agent-awareness-plugins](https://github.com/
 /plugin install agent-awareness@agent-awareness
 ```
 
-That's it. Restart your session and your agent will get a `[agent-awareness]` context at the top. For the full integration story (realtime updates, daemon, diagnostics): [docs/claude-code.md](./docs/claude-code.md)
+That's it. Restart your session. Your agent gets context at startup and keeps receiving updates in real time as things change. For details on the daemon, activity tracking, and diagnostics: [docs/claude-code.md](./docs/claude-code.md)
 
 ### Codex
 
