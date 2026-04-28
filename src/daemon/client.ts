@@ -8,6 +8,7 @@
 
 import { request, type IncomingMessage } from 'node:http';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -17,6 +18,7 @@ const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
 const DAEMON_DIR = join(homedir(), '.cache', 'agent-awareness');
 const PID_FILE = join(DAEMON_DIR, 'daemon.pid');
+const SPAWN_LOCK = join(DAEMON_DIR, 'spawn.lock');
 const SERVER_SCRIPT = join(__dirname, 'server.ts');
 
 function getInstalledVersion(): string {
@@ -116,6 +118,41 @@ async function waitForReady(maxWaitMs = 5000): Promise<DaemonInfo | null> {
 }
 
 /**
+ * Acquire a spawn lock (mkdir-based). Returns true if acquired.
+ */
+async function acquireSpawnLock(): Promise<boolean> {
+  try {
+    await mkdir(SPAWN_LOCK);
+    await writeFile(join(SPAWN_LOCK, 'meta.json'),
+      JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }) + '\n');
+    return true;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'EEXIST') {
+      // Check if lock is stale (holder dead or lock older than 15s)
+      try {
+        const meta = JSON.parse(await readFile(join(SPAWN_LOCK, 'meta.json'), 'utf8'));
+        const age = Date.now() - new Date(meta.createdAt).getTime();
+        const holderAlive = isAlive(meta.pid);
+        if (!holderAlive || age > 15_000) {
+          await rm(SPAWN_LOCK, { recursive: true, force: true });
+          return acquireSpawnLock();
+        }
+      } catch {
+        // Can't read meta — break stale lock
+        await rm(SPAWN_LOCK, { recursive: true, force: true });
+        return acquireSpawnLock();
+      }
+      return false;
+    }
+    throw err;
+  }
+}
+
+async function releaseSpawnLock(): Promise<void> {
+  await rm(SPAWN_LOCK, { recursive: true, force: true });
+}
+
+/**
  * Ensure the daemon is running. Starts it if needed.
  * Returns connection info { host, port } or null on failure.
  */
@@ -128,12 +165,9 @@ export async function ensureServer(): Promise<DaemonInfo | null> {
       return ensureServer();
     }
 
-    // Check version or script mismatch (plugin was updated)
-    const currentScript = getServerScript();
+    // Check version mismatch (plugin was updated)
     const currentVersion = getInstalledVersion();
-    const stale = info.serverScript !== currentScript
-      || (currentVersion !== '0.0.0' && info.version !== currentVersion);
-    if (stale) {
+    if (currentVersion !== '0.0.0' && info.version !== currentVersion) {
       await killProcess(info.pid);
       try { unlinkSync(PID_FILE); } catch { /* ignore */ }
       return ensureServer();
@@ -149,9 +183,17 @@ export async function ensureServer(): Promise<DaemonInfo | null> {
     try { unlinkSync(PID_FILE); } catch { /* ignore */ }
   }
 
-  // Spawn new daemon
-  spawnDaemon();
-  return waitForReady();
+  // Spawn new daemon — acquire lock to prevent concurrent starts
+  if (!await acquireSpawnLock()) {
+    // Another process is spawning — just wait for it
+    return waitForReady();
+  }
+  try {
+    spawnDaemon();
+    return await waitForReady();
+  } finally {
+    await releaseSpawnLock();
+  }
 }
 
 /**

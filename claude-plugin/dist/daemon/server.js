@@ -17,7 +17,7 @@
  *
  * Usage: node src/daemon/server.ts
  */
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { writeFile, unlink, readFile, mkdir } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
@@ -391,23 +391,24 @@ async function loadActivityConfig() {
 async function main() {
     await initStateDir('claude-code');
     await loadActivityConfig();
-    // Check for stale PID file
+    // Check for existing daemon — health-check, not just PID
     if (existsSync(PID_FILE)) {
         try {
             const existing = JSON.parse(await readFile(PID_FILE, 'utf8'));
-            process.kill(existing.pid, 0); // throws if dead
-            console.error(`[daemon] already running (pid ${existing.pid}, port ${existing.port})`);
-            process.exit(0);
-        }
-        catch (err) {
-            if (err.code === 'ESRCH') {
-                // Stale PID, clean up and continue
-                await removePidFile();
-            }
-            else if (err.code !== 'ERR_INVALID_ARG_TYPE') {
-                // Process exists, bail
+            const alive = await new Promise(resolve => {
+                const req = httpRequest({ host: '127.0.0.1', port: existing.port, path: '/health', method: 'GET', timeout: 2000 }, res => { resolve(res.statusCode === 200); res.resume(); });
+                req.on('error', () => resolve(false));
+                req.on('timeout', () => { req.destroy(); resolve(false); });
+                req.end();
+            });
+            if (alive) {
+                console.error(`[daemon] already running (pid ${existing.pid}, port ${existing.port})`);
                 process.exit(0);
             }
+            await removePidFile();
+        }
+        catch {
+            await removePidFile();
         }
     }
     server = createServer(handleRequest);
