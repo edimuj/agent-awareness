@@ -28,28 +28,9 @@ If the daemon is unavailable (startup failure, killed manually), everything stil
 
 ## Activity tracking
 
-The daemon tracks session activity through prompt gathers. If no session has sent a prompt within the idle timeout (default 10 minutes), the ticker pauses. No wasted API calls or token-burning updates pushed to idle sessions. Activity resumes on the next prompt.
+The daemon tracks session activity through prompt gathers. If no session has sent a prompt within 10 minutes, the ticker pauses. No wasted API calls or token-burning updates pushed to idle sessions. Activity resumes on the next prompt.
 
-Configure in `config/default.json`:
-```json
-{
-  "activity": {
-    "idleTimeoutMinutes": 10
-  }
-}
-```
-
-The `/health` endpoint exposes activity state:
-```json
-{
-  "activity": {
-    "sessionActive": true,
-    "lastPromptAt": "2026-04-28T14:32:00.000Z",
-    "idleSince": null,
-    "idleTimeoutMinutes": 10
-  }
-}
-```
+You can check activity state via the daemon's `/health` endpoint.
 
 ## Install
 
