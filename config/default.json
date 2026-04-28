@@ -1,4 +1,7 @@
 {
+  "activity": {
+    "idleTimeoutMinutes": 10
+  },
   "policy": {
     "maxCharsSessionStart": 800,
     "maxCharsPrompt": 500,

@@ -24,6 +24,7 @@ let initialized = false;
 interface SessionMeta {
   seenFingerprints?: Record<string, string>;
   sessionStartedAt?: string;
+  lastPromptAt?: string;
 }
 
 function getMeta(state: PluginState): SessionMeta {
@@ -123,6 +124,7 @@ export async function run(event: string): Promise<string> {
           [META_KEY]: {
             seenFingerprints: policy.meta.seenFingerprints ?? {},
             sessionStartedAt: nowIso,
+            lastPromptAt: nowIso,
             _updatedAt: nowIso,
           },
         };
@@ -133,6 +135,7 @@ export async function run(event: string): Promise<string> {
           [META_KEY]: {
             ...currentMeta,
             seenFingerprints: policy.meta.seenFingerprints ?? (currentMeta.seenFingerprints ?? {}),
+            lastPromptAt: nowIso,
             _updatedAt: nowIso,
           },
         };

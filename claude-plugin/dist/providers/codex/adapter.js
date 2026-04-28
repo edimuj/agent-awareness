@@ -96,6 +96,7 @@ export async function run(event) {
                     [META_KEY]: {
                         seenFingerprints: policy.meta.seenFingerprints ?? {},
                         sessionStartedAt: nowIso,
+                        lastPromptAt: nowIso,
                         _updatedAt: nowIso,
                     },
                 };
@@ -107,6 +108,7 @@ export async function run(event) {
                     [META_KEY]: {
                         ...currentMeta,
                         seenFingerprints: policy.meta.seenFingerprints ?? (currentMeta.seenFingerprints ?? {}),
+                        lastPromptAt: nowIso,
                         _updatedAt: nowIso,
                     },
                 };

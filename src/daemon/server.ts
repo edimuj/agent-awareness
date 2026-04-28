@@ -67,6 +67,8 @@ interface SSEClient {
 const sseClients = new Set<SSEClient>();
 const sessions = new Set<string>();
 let lastActivity = Date.now();
+let lastPromptGather = Date.now();
+let idleTimeoutMs = 10 * 60_000;
 
 function broadcast(event: string, data: Record<string, unknown>): void {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -88,7 +90,22 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
       const plugins = registry?.pluginNames() ?? [];
-      json(res, { status: 'ok', version: getPackageVersion(), plugins, sessions: sessions.size, sseClients: sseClients.size, uptime: process.uptime() });
+      const idleMs = Date.now() - lastPromptGather;
+      const sessionActive = idleMs < idleTimeoutMs;
+      json(res, {
+        status: 'ok',
+        version: getPackageVersion(),
+        plugins,
+        sessions: sessions.size,
+        sseClients: sseClients.size,
+        uptime: process.uptime(),
+        activity: {
+          sessionActive,
+          lastPromptAt: new Date(lastPromptGather).toISOString(),
+          idleSince: sessionActive ? null : new Date(lastPromptGather).toISOString(),
+          idleTimeoutMinutes: idleTimeoutMs / 60_000,
+        },
+      });
       return;
     }
 
@@ -204,6 +221,10 @@ async function reloadPlugins(): Promise<{ loaded: string[], errors: string[] }> 
 }
 
 async function gatherForTrigger(trigger: string, cwd: string): Promise<string> {
+  if (trigger === 'prompt' || trigger === 'session-start') {
+    lastPromptGather = Date.now();
+  }
+
   const reg = await ensureRegistry();
   const context = await resolveGatherContext('claude-code', cwd);
 
@@ -279,12 +300,13 @@ async function startTicker(): Promise<void> {
   // No initial tick — sessions get initial data from session-start hook.
   // First tick fires after tickMs, when SSE clients are connected.
 
-  // Periodic ticks
+  // Periodic ticks — skipped when all sessions are idle
   tickerTimer = setInterval(async () => {
+    if (Date.now() - lastPromptGather > idleTimeoutMs) return;
     await tick(tickerRegistry, schedules, context, { onResult });
   }, tickMs);
 
-  console.error(`[daemon] ticker started (${schedules.length} schedules, tick every ${tickMs}ms)`);
+  console.error(`[daemon] ticker started (${schedules.length} schedules, tick every ${tickMs}ms, idle timeout ${idleTimeoutMs / 60_000}min)`);
 }
 
 // --- Inactivity shutdown ---
@@ -400,8 +422,18 @@ async function shutdown(): Promise<void> {
   process.exit(0);
 }
 
+async function loadActivityConfig(): Promise<void> {
+  try {
+    const raw = JSON.parse(await readFile(DEFAULT_CONFIG, 'utf8'));
+    if (raw.activity?.idleTimeoutMinutes > 0) {
+      idleTimeoutMs = raw.activity.idleTimeoutMinutes * 60_000;
+    }
+  } catch { /* use defaults */ }
+}
+
 async function main(): Promise<void> {
   await initStateDir('claude-code');
+  await loadActivityConfig();
 
   // Check for stale PID file
   if (existsSync(PID_FILE)) {
