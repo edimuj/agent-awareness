@@ -121,6 +121,7 @@ async function waitForReady(maxWaitMs = 5000) {
  */
 async function acquireSpawnLock() {
     try {
+        await mkdir(DAEMON_DIR, { recursive: true });
         await mkdir(SPAWN_LOCK);
         await writeFile(join(SPAWN_LOCK, 'meta.json'), JSON.stringify({ pid: process.pid, createdAt: new Date().toISOString() }) + '\n');
         return true;

@@ -2,14 +2,14 @@
  * Codex hooks install/uninstall/status commands.
  *
  * Installs agent-awareness hook entries in either:
- * - Global Codex hooks file: ~/.codex/hooks.json (default)
+ * - Global Codex config file: ~/.codex/config.toml (default)
  * - Project-local hooks file: ./.codex/hooks.json (optional)
  *
  * Also enables/disables the codex_hooks feature flag via Codex CLI.
  */
 
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +23,8 @@ const PROMPT_EVENT = 'UserPromptSubmit';
 
 const SESSION_TIMEOUT_SECONDS = 15;
 const PROMPT_TIMEOUT_SECONDS = 10;
+const TOML_BLOCK_BEGIN = '# agent-awareness hooks: begin';
+const TOML_BLOCK_END = '# agent-awareness hooks: end';
 
 interface CommandResult {
   code: number | null;
@@ -56,6 +58,7 @@ export type HooksScope = 'global' | 'project';
 export interface CodexHooksOptions {
   scope?: HooksScope;
   fallbackToProject?: boolean;
+  quiet?: boolean;
 }
 
 async function runCodex(args: string[]): Promise<CommandResult> {
@@ -117,6 +120,13 @@ export function resolveHooksJsonPath(
   return join(cwd, '.codex', 'hooks.json');
 }
 
+export function resolveCodexConfigTomlPath(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = homedir(),
+): string {
+  return join(resolveCodexHome(env, home), 'config.toml');
+}
+
 function otherScope(scope: HooksScope): HooksScope {
   return scope === 'global' ? 'project' : 'global';
 }
@@ -136,6 +146,135 @@ async function saveHooksConfig(
 ): Promise<void> {
   await mkdir(dirname(hooksJsonPath), { recursive: true });
   await writeFile(hooksJsonPath, JSON.stringify(config, null, 2) + '\n', 'utf8');
+}
+
+async function loadText(path: string): Promise<string> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
+function tomlString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function renderTomlHookBlock(commands: ResolvedHookCommands): string {
+  return [
+    TOML_BLOCK_BEGIN,
+    `[[hooks.${SESSION_EVENT}]]`,
+    `[[hooks.${SESSION_EVENT}.hooks]]`,
+    'type = "command"',
+    `command = ${tomlString(commands.session)}`,
+    `timeout = ${SESSION_TIMEOUT_SECONDS}`,
+    '',
+    `[[hooks.${PROMPT_EVENT}]]`,
+    `[[hooks.${PROMPT_EVENT}.hooks]]`,
+    'type = "command"',
+    `command = ${tomlString(commands.prompt)}`,
+    `timeout = ${PROMPT_TIMEOUT_SECONDS}`,
+    TOML_BLOCK_END,
+    '',
+  ].join('\n');
+}
+
+function removeTomlHookBlock(text: string): { text: string; removed: boolean } {
+  const start = text.indexOf(TOML_BLOCK_BEGIN);
+  const end = text.indexOf(TOML_BLOCK_END);
+  if (start !== -1 && end !== -1 && end > start) {
+    const afterEnd = end + TOML_BLOCK_END.length;
+    const next = text.slice(0, start).replace(/\n{2,}$/, '\n') + text.slice(afterEnd).replace(/^\n{1,2}/, '\n');
+    const normalized = next.endsWith('\n') ? next : `${next}\n`;
+    const cleaned = removeTomlHookBlock(normalized);
+    return { text: cleaned.text, removed: true };
+  }
+
+  // Older/dev builds may have left a partial managed block behind. Remove only
+  // hook tables that contain agent-awareness commands, preserving unrelated
+  // hooks such as Agent Relay.
+  const lines = text.split(/\r?\n/);
+  const kept: string[] = [];
+  let removed = false;
+
+  for (let index = 0; index < lines.length;) {
+    const line = lines[index]!;
+    if (line === TOML_BLOCK_BEGIN || line === TOML_BLOCK_END) {
+      removed = true;
+      index += 1;
+      continue;
+    }
+
+    if (/^\[\[hooks\.[^\]]+\]\]$/.test(line.trim())) {
+      const block: string[] = [];
+      do {
+        block.push(lines[index]!);
+        index += 1;
+      } while (index < lines.length && !/^\s*\[/.test(lines[index]!.trim()));
+
+      const blockText = block.join('\n');
+      const isEmptyAwarenessEventTable = block.length === 1
+        && (
+          block[0]!.trim() === `[[hooks.${SESSION_EVENT}]]`
+          || block[0]!.trim() === `[[hooks.${PROMPT_EVENT}]]`
+        );
+      if (isEmptyAwarenessEventTable || blockText.includes('codex-session-start') || blockText.includes('codex-prompt-submit')) {
+        removed = true;
+        continue;
+      }
+      kept.push(...block);
+      continue;
+    }
+
+    kept.push(line);
+    index += 1;
+  }
+
+  if (!removed) return { text, removed: false };
+  const next = kept.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+  return { text: next, removed: true };
+}
+
+export function removeAgentAwarenessHooksFromConfigTomlText(text: string): string {
+  return removeTomlHookBlock(text).text;
+}
+
+async function installHooksInConfigToml(configTomlPath: string, commands: ResolvedHookCommands): Promise<void> {
+  await mkdir(dirname(configTomlPath), { recursive: true });
+  const current = await loadText(configTomlPath);
+  const withoutBlock = removeTomlHookBlock(current).text.trimEnd();
+  const next = `${withoutBlock}${withoutBlock ? '\n\n' : ''}${renderTomlHookBlock(commands)}`;
+  await writeFile(configTomlPath, next, 'utf8');
+}
+
+async function uninstallHooksFromConfigToml(configTomlPath: string): Promise<number> {
+  const current = await loadText(configTomlPath);
+  const removed = removeTomlHookBlock(current);
+  if (removed.removed) {
+    await writeFile(configTomlPath, removed.text, 'utf8');
+    return 2;
+  }
+  return 0;
+}
+
+function hasCommandInConfigToml(text: string, command: string): boolean {
+  return text.includes(`command = ${tomlString(command)}`)
+    || text.includes(`command = '${command.replace(/'/g, "\\'")}'`);
+}
+
+function countTomlHookCommands(text: string): number {
+  return [...text.matchAll(/^\s*command\s*=/gm)].length;
+}
+
+async function cleanupLegacyHooksJson(hooksJsonPath: string): Promise<void> {
+  const config = await loadHooksConfig(hooksJsonPath);
+  const removed = removeAgentAwarenessHooks(config.hooks);
+  if (removed === 0) return;
+  if (countRemainingCommands(config.hooks) === 0) {
+    await rm(hooksJsonPath, { force: true });
+    return;
+  }
+  await saveHooksConfig(hooksJsonPath, config);
 }
 
 function ruleHooks(rule: HookRuleConfig): HookCommandConfig[] {
@@ -319,6 +458,13 @@ function printInstallSuccess(hooksJsonPath: string, commands: ResolvedHookComman
   console.log('  Restart Codex sessions to pick up hook changes.');
 }
 
+function printTomlInstallSuccess(configTomlPath: string, commands: ResolvedHookCommands): void {
+  console.log(`Codex hooks installed (global): ${configTomlPath}`);
+  console.log(`  ${SESSION_EVENT}: ${commands.session}`);
+  console.log(`  ${PROMPT_EVENT}: ${commands.prompt}`);
+  console.log('  Restart Codex sessions to pick up hook changes.');
+}
+
 export async function codexHooksInstall(options: CodexHooksOptions = {}): Promise<void> {
   const preferredScope = options.scope ?? 'global';
   const commands = await resolveHookCommands();
@@ -339,52 +485,79 @@ export async function codexHooksInstall(options: CodexHooksOptions = {}): Promis
     return;
   }
 
+  if (preferredScope === 'global') {
+    const configTomlPath = resolveCodexConfigTomlPath();
+    try {
+      await installHooksInConfigToml(configTomlPath, commands);
+      await cleanupLegacyHooksJson(resolveHooksJsonPath('global'));
+      if (!options.quiet) printTomlInstallSuccess(configTomlPath, commands);
+      return;
+    } catch (err) {
+      if (!options.fallbackToProject) {
+        console.error(`Failed to write Codex config at ${configTomlPath}: ${(err as Error).message}`);
+        process.exitCode = 1;
+        return;
+      }
+      console.warn(`Warning: could not write global Codex config at ${configTomlPath}.`);
+      const fallbackScope: HooksScope = 'project';
+      const fallbackPath = resolveHooksJsonPath(fallbackScope);
+      console.warn(`Falling back to project hooks config: ${fallbackPath}`);
+      try {
+        const config = await loadHooksConfig(fallbackPath);
+        upsertEventHook(config.hooks, SESSION_EVENT, commands.session, SESSION_TIMEOUT_SECONDS);
+        upsertEventHook(config.hooks, PROMPT_EVENT, commands.prompt, PROMPT_TIMEOUT_SECONDS);
+        await saveHooksConfig(fallbackPath, config);
+        if (!options.quiet) printInstallSuccess(fallbackPath, commands, fallbackScope);
+      } catch (fallbackErr) {
+        console.error(`Failed to write fallback project hooks config at ${fallbackPath}: ${(fallbackErr as Error).message}`);
+        process.exitCode = 1;
+      }
+      return;
+    }
+  }
+
   const preferredPath = resolveHooksJsonPath(preferredScope);
   try {
     const config = await loadHooksConfig(preferredPath);
     upsertEventHook(config.hooks, SESSION_EVENT, commands.session, SESSION_TIMEOUT_SECONDS);
     upsertEventHook(config.hooks, PROMPT_EVENT, commands.prompt, PROMPT_TIMEOUT_SECONDS);
     await saveHooksConfig(preferredPath, config);
-    printInstallSuccess(preferredPath, commands, preferredScope);
+    if (!options.quiet) printInstallSuccess(preferredPath, commands, preferredScope);
     return;
   } catch (err) {
-    if (!(preferredScope === 'global' && options.fallbackToProject)) {
-      console.error(`Failed to write Codex hooks config at ${preferredPath}: ${(err as Error).message}`);
-      process.exitCode = 1;
-      return;
-    }
-  }
-
-  const fallbackScope: HooksScope = 'project';
-  const fallbackPath = resolveHooksJsonPath(fallbackScope);
-  console.warn(`Warning: could not write global Codex hooks config at ${preferredPath}.`);
-  console.warn(`Falling back to project hooks config: ${fallbackPath}`);
-  try {
-    const config = await loadHooksConfig(fallbackPath);
-    upsertEventHook(config.hooks, SESSION_EVENT, commands.session, SESSION_TIMEOUT_SECONDS);
-    upsertEventHook(config.hooks, PROMPT_EVENT, commands.prompt, PROMPT_TIMEOUT_SECONDS);
-    await saveHooksConfig(fallbackPath, config);
-    printInstallSuccess(fallbackPath, commands, fallbackScope);
-  } catch (err) {
-    console.error(`Failed to write fallback project hooks config at ${fallbackPath}: ${(err as Error).message}`);
+    console.error(`Failed to write Codex hooks config at ${preferredPath}: ${(err as Error).message}`);
     process.exitCode = 1;
   }
 }
 
 export async function codexHooksUninstall(options: CodexHooksOptions = {}): Promise<void> {
   const scope = options.scope ?? 'global';
+  let removed = 0;
+
+  if (scope === 'global') {
+    const configTomlPath = resolveCodexConfigTomlPath();
+    removed += await uninstallHooksFromConfigToml(configTomlPath);
+  }
+
   const hooksJsonPath = resolveHooksJsonPath(scope);
   let config = await loadHooksConfig(hooksJsonPath);
-  const removed = removeAgentAwarenessHooks(config.hooks);
+  removed += removeAgentAwarenessHooks(config.hooks);
 
   if (removed > 0) {
-    await saveHooksConfig(hooksJsonPath, config);
-    console.log(`Removed ${removed} agent-awareness Codex hook(s) from ${hooksJsonPath}`);
+    if (countRemainingCommands(config.hooks) === 0) {
+      await rm(hooksJsonPath, { force: true });
+    } else {
+      await saveHooksConfig(hooksJsonPath, config);
+    }
+    console.log(`Removed ${removed} agent-awareness Codex hook(s)`);
   } else {
-    console.log(`No agent-awareness Codex hooks found in ${hooksJsonPath}`);
+    console.log('No agent-awareness Codex hooks found');
   }
 
   let remaining = countRemainingCommands(config.hooks);
+  if (scope === 'global') {
+    remaining += countTomlHookCommands(await loadText(resolveCodexConfigTomlPath()));
+  }
   if (remaining === 0) {
     const secondaryPath = resolveHooksJsonPath(otherScope(scope));
     const secondaryConfig = await loadHooksConfig(secondaryPath);
@@ -429,14 +602,18 @@ export async function codexHooksStatus(options: CodexHooksOptions = {}): Promise
 
   const hooksJsonPath = resolveHooksJsonPath(scope);
   const config = await loadHooksConfig(hooksJsonPath);
-  const sessionInstalled = hasCommandForEvent(config.hooks, SESSION_EVENT, commands.session);
-  const promptInstalled = hasCommandForEvent(config.hooks, PROMPT_EVENT, commands.prompt);
+  const configTomlPath = resolveCodexConfigTomlPath();
+  const configToml = scope === 'global' ? await loadText(configTomlPath) : '';
+  const sessionInstalled = hasCommandForEvent(config.hooks, SESSION_EVENT, commands.session)
+    || hasCommandInConfigToml(configToml, commands.session);
+  const promptInstalled = hasCommandForEvent(config.hooks, PROMPT_EVENT, commands.prompt)
+    || hasCommandInConfigToml(configToml, commands.prompt);
   const hooksInstalled = sessionInstalled && promptInstalled;
 
   const featureLabel = featureEnabled === null ? 'unknown' : (featureEnabled ? 'enabled' : 'disabled');
   console.log(`Codex hooks feature: ${featureLabel}`);
   console.log(`Agent-awareness Codex hooks (${scope}): ${hooksInstalled ? 'installed' : 'not installed'}`);
-  console.log(`  config: ${hooksJsonPath}`);
+  console.log(`  config: ${scope === 'global' ? configTomlPath : hooksJsonPath}`);
   if (!hooksInstalled) {
     if (scope === 'global') {
       console.log('  Run "agent-awareness codex hooks install --global" to set up');

@@ -191,7 +191,7 @@ function startCodexAppServer(
   });
 }
 
-test('codex setup writes hook commands to packaged codex-plugin wrappers', { timeout: 30_000 }, async t => {
+test('codex setup writes global hook commands to config.toml and removes legacy hooks.json', { timeout: 30_000 }, async t => {
   if (!(await hasCodexCli())) t.skip('codex CLI not available in PATH');
 
   const base = await mkdtemp(join(tmpdir(), 'agent-awareness-codex-setup-'));
@@ -213,22 +213,20 @@ test('codex setup writes hook commands to packaged codex-plugin wrappers', { tim
   const setup = await runCommand('node', [CLI_ENTRY, 'codex', 'setup', '--global'], env);
   assert.equal(setup.code, 0, setup.stderr || setup.stdout);
 
-  const hooksPath = join(codexHomeDir, 'hooks.json');
-  const hooks = JSON.parse(await readFile(hooksPath, 'utf8')) as {
-    hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
-  };
-
   const expectedSession = `node ${quotePath(join(PROJECT_ROOT, 'codex-plugin', 'hooks', 'codex-session-start.mjs'))}`;
   const expectedPrompt = `node ${quotePath(join(PROJECT_ROOT, 'codex-plugin', 'hooks', 'codex-prompt-submit.mjs'))}`;
-  const sessionCommand = hooks.hooks.SessionStart?.[0]?.hooks?.[0]?.command;
-  const promptCommand = hooks.hooks.UserPromptSubmit?.[0]?.hooks?.[0]?.command;
+  const configToml = await readFile(join(codexHomeDir, 'config.toml'), 'utf8');
 
-  assert.equal(sessionCommand, expectedSession);
-  assert.equal(promptCommand, expectedPrompt);
+  assert.match(configToml, /# agent-awareness hooks: begin/);
+  assert.match(configToml, /\[\[hooks\.SessionStart\]\]/);
+  assert.match(configToml, /\[\[hooks\.UserPromptSubmit\]\]/);
+  assert.match(configToml, new RegExp(`command = ${JSON.stringify(expectedSession).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.match(configToml, new RegExp(`command = ${JSON.stringify(expectedPrompt).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+  assert.equal(existsSync(join(codexHomeDir, 'hooks.json')), false, 'global setup should not create legacy hooks.json');
 
   const features = await runCommand('codex', ['features', 'list'], env);
   assert.equal(features.code, 0, features.stderr || features.stdout);
-  assert.match(features.stdout, /^codex_hooks\s+under development\s+true$/m);
+  assert.match(features.stdout, /^codex_hooks\s+.+\s+true$/m);
 });
 
 test('codex plugin install enables the bundle but does not create hooks config', { timeout: 30_000 }, async t => {

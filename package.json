@@ -1,10 +1,11 @@
 {
   "name": "agent-awareness",
-  "version": "0.8.6",
+  "version": "0.8.7",
   "description": "Modular awareness plugins for AI coding agents",
   "type": "module",
   "bin": {
-    "agent-awareness": "dist/cli.js"
+    "agent-awareness": "dist/cli.js",
+    "codex-aware": "dist/codex-aware.js"
   },
   "types": "./types/core/index.d.ts",
   "exports": {

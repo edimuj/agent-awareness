@@ -2,6 +2,7 @@
 import { parseArgs } from 'node:util';
 import { codexDoctor } from "./commands/codex-doctor.js";
 import { codexHooksInstall, codexHooksStatus, codexHooksUninstall } from "./commands/codex-hooks.js";
+import { codexLive } from "./commands/codex-live.js";
 import { codexMcpInstall, codexMcpStatus, codexMcpUninstall } from "./commands/codex-mcp.js";
 import { codexSetup } from "./commands/codex-setup.js";
 import { create } from "./commands/create.js";
@@ -16,14 +17,16 @@ Commands:
   list              Show all discovered plugins and their status
   reload            Hot-reload plugins in the running daemon
   codex setup       Install the supported Codex hooks integration
+  codex live        Start Codex with realtime agent-awareness context injection (prefer: codex-aware)
   codex doctor      Diagnose Codex hooks and optional MCP health
   codex mcp ...     Manage optional Codex MCP server (install|uninstall|status)
   codex hooks ...   Manage Codex hooks (install|uninstall|status) [--global|--project]
 
 Options:
   --help, -h        Show this help
-  --global          Use global Codex hook config (~/.codex/hooks.json) for codex hooks/setup
+  --global          Use global Codex config (~/.codex/config.toml) for codex hooks/setup
   --project         Use project hook config (./.codex/hooks.json) for codex hooks/setup
+  --listen          WebSocket URL for codex app-server when using codex live
 
 Create options:
   --local           Create as a local plugin (~/.config/agent-awareness/plugins/)
@@ -37,6 +40,7 @@ const { positionals, values } = parseArgs({
         local: { type: 'boolean', default: false },
         global: { type: 'boolean', default: false },
         project: { type: 'boolean', default: false },
+        listen: { type: 'string' },
         description: { type: 'string' },
         triggers: { type: 'string', default: 'session-start,interval:10m' },
     },
@@ -104,12 +108,21 @@ switch (command) {
             });
             break;
         }
+        if (sub === 'live' || sub === 'start') {
+            await codexLive({
+                hooksScope: hookScope,
+                hooksFallbackToProject: !values.project,
+                listenUrl: values.listen,
+                codexArgs: positionals.slice(2),
+            });
+            break;
+        }
         if (sub === 'doctor') {
             await codexDoctor();
             break;
         }
         if (sub !== 'mcp' && sub !== 'hooks') {
-            console.error(`Unknown codex subcommand: ${sub ?? '(none)'}\nUsage: agent-awareness codex [setup|doctor|mcp|hooks] [install|uninstall|status]`);
+            console.error(`Unknown codex subcommand: ${sub ?? '(none)'}\nUsage: agent-awareness codex [setup|live|doctor|mcp|hooks] [install|uninstall|status]`);
             process.exit(2);
         }
         const action = positionals[2];

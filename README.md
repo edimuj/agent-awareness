@@ -49,6 +49,7 @@ That's it. Restart your session. Your agent gets context at startup and keeps re
 ```bash
 npm install -g agent-awareness
 agent-awareness codex setup
+codex-aware                  # preferred: realtime updates via Codex app-server
 ```
 
 Full setup guide and CLI reference: [docs/codex.md](./docs/codex.md)
@@ -190,7 +191,7 @@ agent-awareness is provider-agnostic. Plugins receive a `GatherContext` with `co
 | Provider | Hooks | Realtime | Docs |
 |----------|:-----:|:--------:|------|
 | Claude Code | ✓ | ✓ | [docs/claude-code.md](./docs/claude-code.md) |
-| Codex | ✓ | no | [docs/codex.md](./docs/codex.md) |
+| Codex | ✓ | ✓ via `codex-aware` | [docs/codex.md](./docs/codex.md) |
 
 Adding your own provider is ~60 lines. See [docs/creating-a-provider.md](./docs/creating-a-provider.md).
 
