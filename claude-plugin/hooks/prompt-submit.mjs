@@ -1,18 +1,40 @@
-import { ensureServer, gatherFromDaemon } from '../dist/daemon/client.js';
+import { readFileSync } from 'node:fs';
+import { ensureServer, gatherFromDaemon, registerSessionStatus } from '../dist/daemon/client.js';
 import { run } from '../dist/providers/claude-code/adapter.js';
 
-// Drain stdin — Claude Code pipes data here. Not reading it causes EPIPE.
-if (!process.stdin.isTTY) {
-  process.stdin.resume();
-  process.stdin.on('data', () => {});
+function readInput() {
+  if (process.stdin.isTTY) return {};
+  try {
+    const raw = readFileSync(0, 'utf8');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function pickSessionId(input) {
+  const id = input.session_id ?? input.sessionId;
+  if (typeof id !== 'string') return null;
+  const trimmed = id.trim();
+  return trimmed ? trimmed : null;
 }
 
 // Try daemon first. Fall back to direct adapter (Tier 1).
 let output = '';
+const input = readInput();
+const sessionId = pickSessionId(input);
+const sessionMeta = sessionId ? {
+  sessionId,
+  provider: 'claude-code',
+  status: 'busy',
+} : undefined;
 try {
   const daemon = await ensureServer();
   if (daemon) {
-    output = await gatherFromDaemon(daemon, 'prompt');
+    if (sessionMeta) {
+      await registerSessionStatus(daemon, sessionMeta);
+    }
+    output = await gatherFromDaemon(daemon, 'prompt', input.cwd, sessionMeta);
   }
 } catch {
   // Daemon failed — fall through to Tier 1

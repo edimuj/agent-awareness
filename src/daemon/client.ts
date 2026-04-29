@@ -47,6 +47,15 @@ export interface DaemonInfo {
   version: string;
 }
 
+export type SessionLifecycleStatus = 'online' | 'busy' | 'idle' | 'unknown' | 'offline';
+
+export interface SessionStatusUpdate {
+  sessionId: string;
+  provider?: string;
+  status?: SessionLifecycleStatus;
+  reason?: string;
+}
+
 /**
  * Read PID file and return daemon info, or null if not found/invalid.
  */
@@ -204,9 +213,16 @@ export async function gatherFromDaemon(
   info: DaemonInfo,
   trigger: string,
   cwd?: string,
+  session?: SessionStatusUpdate,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
-    const body = JSON.stringify({ trigger, cwd: cwd ?? process.cwd() });
+    const body = JSON.stringify({
+      trigger,
+      cwd: cwd ?? process.cwd(),
+      sessionId: session?.sessionId,
+      provider: session?.provider,
+      status: session?.status,
+    });
     const req = request({
       host: info.host,
       port: info.port,
@@ -228,6 +244,54 @@ export async function gatherFromDaemon(
     });
     req.on('error', err => reject(err));
     req.on('timeout', () => { req.destroy(); reject(new Error('daemon gather timeout')); });
+    req.write(body);
+    req.end();
+  });
+}
+
+export async function registerSessionStatus(
+  info: DaemonInfo,
+  update: SessionStatusUpdate,
+): Promise<void> {
+  if (!update.sessionId) return;
+  await postSessionEvent(info, '/session/register', update);
+}
+
+export async function unregisterSessionStatus(
+  info: DaemonInfo,
+  update: SessionStatusUpdate,
+): Promise<void> {
+  if (!update.sessionId) return;
+  await postSessionEvent(info, '/session/unregister', update);
+}
+
+async function postSessionEvent(
+  info: DaemonInfo,
+  path: '/session/register' | '/session/unregister',
+  update: SessionStatusUpdate,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const body = JSON.stringify(update);
+    const req = request({
+      host: info.host,
+      port: info.port,
+      path,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(body),
+      },
+      timeout: 5000,
+    }, res => {
+      res.resume();
+      if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+        resolve();
+      } else {
+        reject(new Error(`${path} failed with status ${res.statusCode ?? 0}`));
+      }
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error(`${path} timeout`)); });
     req.write(body);
     req.end();
   });
@@ -277,12 +341,15 @@ export async function reloadDaemon(): Promise<{ ok: boolean; loaded: string[]; e
 export async function connectSSE(
   info: DaemonInfo,
   sessionId: string,
+  provider?: string,
 ): Promise<IncomingMessage | null> {
   return new Promise(resolve => {
+    const params = new URLSearchParams({ sessionId });
+    if (provider) params.set('provider', provider);
     const req = request({
       host: info.host,
       port: info.port,
-      path: `/events?sessionId=${encodeURIComponent(sessionId)}`,
+      path: `/events?${params.toString()}`,
       method: 'GET',
       timeout: 0, // no timeout for SSE
       headers: { Accept: 'text/event-stream', Connection: 'keep-alive' },

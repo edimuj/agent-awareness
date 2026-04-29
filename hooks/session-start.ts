@@ -1,18 +1,46 @@
-import { ensureServer, gatherFromDaemon } from '../src/daemon/client.ts';
+import { readFileSync } from 'node:fs';
+import { ensureServer, gatherFromDaemon, registerSessionStatus } from '../src/daemon/client.ts';
 import { run } from '../src/providers/claude-code/adapter.ts';
 
-// Drain stdin — Claude Code pipes data here. Not reading it causes EPIPE.
-if (!process.stdin.isTTY) {
-  process.stdin.resume();
-  process.stdin.on('data', () => {});
+interface HookInput {
+  session_id?: string;
+  sessionId?: string;
+  cwd?: string;
+}
+
+function readInput(): HookInput {
+  if (process.stdin.isTTY) return {};
+  try {
+    const raw = readFileSync(0, 'utf8');
+    return raw ? JSON.parse(raw) as HookInput : {};
+  } catch {
+    return {};
+  }
+}
+
+function pickSessionId(input: HookInput): string | null {
+  const id = input.session_id ?? input.sessionId;
+  if (typeof id !== 'string') return null;
+  const trimmed = id.trim();
+  return trimmed ? trimmed : null;
 }
 
 // Try daemon first (shared process, single ticker). Fall back to direct adapter.
 let output = '';
+const input = readInput();
+const sessionId = pickSessionId(input);
+const sessionMeta = sessionId ? {
+  sessionId,
+  provider: 'claude-code',
+  status: 'idle' as const,
+} : undefined;
 try {
   const daemon = await ensureServer();
   if (daemon) {
-    output = await gatherFromDaemon(daemon, 'session-start');
+    if (sessionMeta) {
+      await registerSessionStatus(daemon, sessionMeta);
+    }
+    output = await gatherFromDaemon(daemon, 'session-start', input.cwd, sessionMeta);
   }
 } catch {
   // Daemon failed — fall through to Tier 1

@@ -116,7 +116,7 @@ async function connectAndForward(server: Server, daemonInfo?: DaemonInfo): Promi
   }
   daemon = info; // update module-level ref for doctor tool
 
-  const stream = await connectSSE(info, SESSION_ID);
+  const stream = await connectSSE(info, SESSION_ID, 'claude-code');
   if (!stream) {
     console.error('[agent-awareness-mcp] failed to connect SSE stream, retry in 10s');
     setTimeout(() => connectAndForward(server), 10_000);

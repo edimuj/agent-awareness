@@ -25,7 +25,7 @@ async function connect() {
   }
   retries = 0;
 
-  const stream = await connectSSE(daemon, SESSION_ID);
+  const stream = await connectSSE(daemon, SESSION_ID, 'claude-code');
   if (!stream) {
     setTimeout(connect, 10_000);
     return;
