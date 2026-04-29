@@ -202,9 +202,15 @@ export async function ensureServer() {
 /**
  * POST /gather — request plugin output for a trigger. Used by hooks.
  */
-export async function gatherFromDaemon(info, trigger, cwd) {
+export async function gatherFromDaemon(info, trigger, cwd, session) {
     return new Promise((resolve, reject) => {
-        const body = JSON.stringify({ trigger, cwd: cwd ?? process.cwd() });
+        const body = JSON.stringify({
+            trigger,
+            cwd: cwd ?? process.cwd(),
+            sessionId: session?.sessionId,
+            provider: session?.provider,
+            status: session?.status,
+        });
         const req = request({
             host: info.host,
             port: info.port,
@@ -227,6 +233,44 @@ export async function gatherFromDaemon(info, trigger, cwd) {
         });
         req.on('error', err => reject(err));
         req.on('timeout', () => { req.destroy(); reject(new Error('daemon gather timeout')); });
+        req.write(body);
+        req.end();
+    });
+}
+export async function registerSessionStatus(info, update) {
+    if (!update.sessionId)
+        return;
+    await postSessionEvent(info, '/session/register', update);
+}
+export async function unregisterSessionStatus(info, update) {
+    if (!update.sessionId)
+        return;
+    await postSessionEvent(info, '/session/unregister', update);
+}
+async function postSessionEvent(info, path, update) {
+    await new Promise((resolve, reject) => {
+        const body = JSON.stringify(update);
+        const req = request({
+            host: info.host,
+            port: info.port,
+            path,
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(body),
+            },
+            timeout: 5000,
+        }, res => {
+            res.resume();
+            if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+                resolve();
+            }
+            else {
+                reject(new Error(`${path} failed with status ${res.statusCode ?? 0}`));
+            }
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error(`${path} timeout`)); });
         req.write(body);
         req.end();
     });
@@ -273,12 +317,15 @@ export async function reloadDaemon() {
  *   event: plugin-result
  *   data: {"plugin":"name","text":"...","timestamp":"..."}
  */
-export async function connectSSE(info, sessionId) {
+export async function connectSSE(info, sessionId, provider) {
     return new Promise(resolve => {
+        const params = new URLSearchParams({ sessionId });
+        if (provider)
+            params.set('provider', provider);
         const req = request({
             host: info.host,
             port: info.port,
-            path: `/events?sessionId=${encodeURIComponent(sessionId)}`,
+            path: `/events?${params.toString()}`,
             method: 'GET',
             timeout: 0, // no timeout for SSE
             headers: { Accept: 'text/event-stream', Connection: 'keep-alive' },

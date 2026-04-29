@@ -52,10 +52,13 @@ function getPackageVersion() {
     }
 }
 const sseClients = new Set();
-const sessions = new Set();
+const sessionRecords = new Map();
 let lastActivity = Date.now();
 let lastPromptGather = Date.now();
 let idleTimeoutMs = 10 * 60_000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_MISS_GRACE_MS = HEARTBEAT_INTERVAL_MS + 5_000;
+const SESSION_EVICTION_MS = HEARTBEAT_INTERVAL_MS * 6;
 function broadcast(event, data) {
     const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
     for (const client of sseClients) {
@@ -67,20 +70,113 @@ function broadcast(event, data) {
         }
     }
 }
+function upsertSession(sessionId, updates = {}) {
+    const now = Date.now();
+    const existing = sessionRecords.get(sessionId);
+    const next = {
+        sessionId,
+        provider: updates.provider ?? existing?.provider,
+        status: updates.status ?? existing?.status ?? 'online',
+        connected: updates.connected ?? existing?.connected ?? false,
+        lastSeenAtMs: now,
+        lastHeartbeatAtMs: existing?.lastHeartbeatAtMs ?? now,
+        lastStatusAtMs: updates.status ? now : (existing?.lastStatusAtMs ?? now),
+        connectedAtMs: existing?.connectedAtMs,
+        disconnectedAtMs: existing?.disconnectedAtMs,
+        reason: updates.reason ?? existing?.reason,
+    };
+    if (!existing) {
+        next.connectedAtMs = next.connected ? now : undefined;
+    }
+    if (updates.connected === true) {
+        next.connectedAtMs = existing?.connectedAtMs ?? now;
+        next.disconnectedAtMs = undefined;
+        next.lastHeartbeatAtMs = now;
+    }
+    if (updates.connected === false) {
+        next.disconnectedAtMs = now;
+    }
+    if (updates.status === 'offline') {
+        next.connected = false;
+        next.disconnectedAtMs = now;
+    }
+    sessionRecords.set(sessionId, next);
+    return next;
+}
+function markHeartbeat(sessionId) {
+    const now = Date.now();
+    const existing = sessionRecords.get(sessionId);
+    if (!existing) {
+        upsertSession(sessionId, { connected: true, status: 'online' });
+        return;
+    }
+    existing.connected = true;
+    existing.lastSeenAtMs = now;
+    existing.lastHeartbeatAtMs = now;
+    sessionRecords.set(sessionId, existing);
+}
+function deriveSessionStatus(record, now = Date.now()) {
+    if (record.status === 'offline')
+        return 'offline';
+    if (record.connected && now - record.lastHeartbeatAtMs > HEARTBEAT_MISS_GRACE_MS) {
+        return 'unknown';
+    }
+    if (record.status === 'busy' || record.status === 'idle')
+        return record.status;
+    return record.connected ? 'online' : 'unknown';
+}
+function pruneStaleSessions() {
+    const now = Date.now();
+    for (const [sessionId, record] of sessionRecords) {
+        if (now - record.lastSeenAtMs > SESSION_EVICTION_MS) {
+            sessionRecords.delete(sessionId);
+        }
+    }
+}
+function serializeSession(record, now = Date.now()) {
+    return {
+        sessionId: record.sessionId,
+        provider: record.provider ?? 'unknown',
+        status: deriveSessionStatus(record, now),
+        connected: record.connected,
+        lastSeenAt: new Date(record.lastSeenAtMs).toISOString(),
+        lastHeartbeatAt: new Date(record.lastHeartbeatAtMs).toISOString(),
+        connectedAt: record.connectedAtMs ? new Date(record.connectedAtMs).toISOString() : null,
+        disconnectedAt: record.disconnectedAtMs ? new Date(record.disconnectedAtMs).toISOString() : null,
+        reason: record.reason ?? null,
+    };
+}
+function parseStatus(value) {
+    if (typeof value !== 'string')
+        return null;
+    switch (value) {
+        case 'online':
+        case 'busy':
+        case 'idle':
+        case 'unknown':
+        case 'offline':
+            return value;
+        default:
+            return null;
+    }
+}
 // --- Request handling ---
 async function handleRequest(req, res) {
     lastActivity = Date.now();
     const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
     try {
         if (req.method === 'GET' && url.pathname === '/health') {
+            pruneStaleSessions();
             const plugins = registry?.pluginNames() ?? [];
             const idleMs = Date.now() - lastPromptGather;
             const sessionActive = idleMs < idleTimeoutMs;
+            const now = Date.now();
+            const sessions = [...sessionRecords.values()];
             json(res, {
                 status: 'ok',
                 version: getPackageVersion(),
                 plugins,
-                sessions: sessions.size,
+                sessions: sessions.length,
                 sseClients: sseClients.size,
                 uptime: process.uptime(),
                 activity: {
@@ -89,11 +185,18 @@ async function handleRequest(req, res) {
                     idleSince: sessionActive ? null : new Date(lastPromptGather).toISOString(),
                     idleTimeoutMinutes: idleTimeoutMs / 60_000,
                 },
+                heartbeat: {
+                    intervalMs: HEARTBEAT_INTERVAL_MS,
+                    unknownAfterMs: HEARTBEAT_MISS_GRACE_MS,
+                    evictionAfterMs: SESSION_EVICTION_MS,
+                },
+                sessionStates: sessions.map(record => serializeSession(record, now)),
             });
             return;
         }
         if (req.method === 'GET' && url.pathname === '/events') {
             const sessionId = url.searchParams.get('sessionId') ?? 'unknown';
+            const provider = url.searchParams.get('provider') ?? undefined;
             res.writeHead(200, {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
@@ -104,29 +207,40 @@ async function handleRequest(req, res) {
             req.socket?.setTimeout(0);
             res.socket?.setTimeout(0);
             res.write(': connected\n\n');
+            upsertSession(sessionId, { connected: true, provider, status: 'online' });
             // Send periodic heartbeat to prevent connection reaping
             const heartbeat = setInterval(() => {
                 try {
                     res.write(': heartbeat\n\n');
+                    markHeartbeat(sessionId);
                 }
                 catch {
                     clearInterval(heartbeat);
                 }
-            }, 30_000);
+            }, HEARTBEAT_INTERVAL_MS);
             const client = { res, sessionId };
             sseClients.add(client);
-            sessions.add(sessionId);
             req.on('close', () => {
                 clearInterval(heartbeat);
                 sseClients.delete(client);
-                sessions.delete(sessionId);
+                upsertSession(sessionId, { connected: false });
             });
             return;
         }
         if (req.method === 'POST' && url.pathname === '/gather') {
             const body = await readBody(req);
-            const trigger = body.trigger ?? 'session-start';
-            const cwd = body.cwd ?? process.cwd();
+            const trigger = typeof body.trigger === 'string' && body.trigger.trim()
+                ? body.trigger
+                : 'session-start';
+            const cwd = typeof body.cwd === 'string' && body.cwd.trim()
+                ? body.cwd
+                : process.cwd();
+            const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+            const provider = typeof body.provider === 'string' ? body.provider : undefined;
+            const status = parseStatus(body.status);
+            if (sessionId) {
+                upsertSession(sessionId, { provider, status: status ?? undefined });
+            }
             const text = await gatherForTrigger(trigger, cwd);
             json(res, { text });
             return;
@@ -143,16 +257,30 @@ async function handleRequest(req, res) {
         }
         if (req.method === 'POST' && url.pathname === '/session/register') {
             const body = await readBody(req);
-            if (body.sessionId)
-                sessions.add(body.sessionId);
-            json(res, { ok: true, sessions: sessions.size });
+            const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+            if (sessionId) {
+                upsertSession(sessionId, {
+                    connected: true,
+                    provider: typeof body.provider === 'string' ? body.provider : undefined,
+                    status: parseStatus(body.status) ?? 'online',
+                    reason: typeof body.reason === 'string' ? body.reason : undefined,
+                });
+            }
+            json(res, { ok: true, sessions: sessionRecords.size });
             return;
         }
         if (req.method === 'POST' && url.pathname === '/session/unregister') {
             const body = await readBody(req);
-            if (body.sessionId)
-                sessions.delete(body.sessionId);
-            json(res, { ok: true, sessions: sessions.size });
+            const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+            if (sessionId) {
+                upsertSession(sessionId, {
+                    connected: false,
+                    provider: typeof body.provider === 'string' ? body.provider : undefined,
+                    status: parseStatus(body.status) ?? 'offline',
+                    reason: typeof body.reason === 'string' ? body.reason : undefined,
+                });
+            }
+            json(res, { ok: true, sessions: sessionRecords.size });
             return;
         }
         res.writeHead(404);
@@ -276,15 +404,16 @@ function pruneDeadConnections() {
     for (const client of sseClients) {
         if (client.res.destroyed || client.res.writableEnded) {
             sseClients.delete(client);
-            sessions.delete(client.sessionId);
+            upsertSession(client.sessionId, { connected: false });
         }
     }
+    pruneStaleSessions();
 }
 function startInactivityMonitor() {
     const check = setInterval(() => {
         pruneDeadConnections();
         const idle = Date.now() - lastActivity;
-        if (sessions.size === 0 && sseClients.size === 0 && idle > INACTIVITY_TIMEOUT) {
+        if (sessionRecords.size === 0 && sseClients.size === 0 && idle > INACTIVITY_TIMEOUT) {
             console.error(`[daemon] no sessions for ${Math.round(idle / 1000)}s, shutting down`);
             shutdown();
         }
@@ -319,11 +448,11 @@ async function runDoctor() {
         lines.push(`  OK  ${plugin.name}`);
     }
     lines.push('', `Daemon: running (pid ${process.pid})`);
-    lines.push(`  Sessions: ${sessions.size}`);
+    lines.push(`  Sessions: ${sessionRecords.size}`);
     lines.push(`  SSE clients: ${sseClients.size}`);
     lines.push(`  Ticker: ${tickerTimer ? 'running' : 'not started'}`);
     const total = enabled.length;
-    lines.push('', `Status: healthy — ${total} loaded, ${sessions.size} sessions`);
+    lines.push('', `Status: healthy — ${total} loaded, ${sessionRecords.size} sessions`);
     return lines.join('\n');
 }
 // --- Utilities ---

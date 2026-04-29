@@ -90,7 +90,7 @@ class CodexAwarenessSidecar {
                 const daemon = await ensureServer();
                 if (!daemon)
                     throw new Error('agent-awareness daemon unavailable');
-                const stream = await connectSSE(daemon, this.config.sessionId);
+                const stream = await connectSSE(daemon, this.config.sessionId, 'codex');
                 if (!stream)
                     throw new Error('failed to connect daemon SSE');
                 this.daemonConnected = true;
