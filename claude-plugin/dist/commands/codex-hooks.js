@@ -5,7 +5,7 @@
  * - Global Codex config file: ~/.codex/config.toml (default)
  * - Project-local hooks file: ./.codex/hooks.json (optional)
  *
- * Also enables/disables the codex_hooks feature flag via Codex CLI.
+ * Also enables/disables the stable hooks feature flag via Codex CLI.
  */
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -21,6 +21,8 @@ const SESSION_TIMEOUT_SECONDS = 15;
 const PROMPT_TIMEOUT_SECONDS = 10;
 const TOML_BLOCK_BEGIN = '# agent-awareness hooks: begin';
 const TOML_BLOCK_END = '# agent-awareness hooks: end';
+const HOOKS_FEATURE = 'hooks';
+const LEGACY_HOOKS_FEATURE = 'codex_hooks';
 async function runCodex(args) {
     return new Promise((resolve, reject) => {
         const child = spawn('codex', args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -99,17 +101,17 @@ function tomlString(value) {
 function renderTomlHookBlock(commands) {
     return [
         TOML_BLOCK_BEGIN,
-        `[[hooks.${SESSION_EVENT}]]`,
-        `[[hooks.${SESSION_EVENT}.hooks]]`,
-        'type = "command"',
-        `command = ${tomlString(commands.session)}`,
-        `timeout = ${SESSION_TIMEOUT_SECONDS}`,
-        '',
         `[[hooks.${PROMPT_EVENT}]]`,
         `[[hooks.${PROMPT_EVENT}.hooks]]`,
         'type = "command"',
         `command = ${tomlString(commands.prompt)}`,
         `timeout = ${PROMPT_TIMEOUT_SECONDS}`,
+        '',
+        `[[hooks.${SESSION_EVENT}]]`,
+        `[[hooks.${SESSION_EVENT}.hooks]]`,
+        'type = "command"',
+        `command = ${tomlString(commands.session)}`,
+        `timeout = ${SESSION_TIMEOUT_SECONDS}`,
         TOML_BLOCK_END,
         '',
     ].join('\n');
@@ -165,6 +167,28 @@ function removeTomlHookBlock(text) {
 export function removeAgentAwarenessHooksFromConfigTomlText(text) {
     return removeTomlHookBlock(text).text;
 }
+export function removeDeprecatedCodexHooksFeatureFlagFromConfigTomlText(text) {
+    const lines = text.split(/\r?\n/);
+    const kept = [];
+    let inFeatures = false;
+    let removed = false;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (/^\[/.test(trimmed)) {
+            inFeatures = trimmed === '[features]';
+        }
+        if (/^\s*features\.codex_hooks\s*=/.test(line)
+            || (inFeatures && /^\s*codex_hooks\s*=/.test(line))) {
+            removed = true;
+            continue;
+        }
+        kept.push(line);
+    }
+    if (!removed)
+        return text;
+    const next = kept.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+    return next ? `${next}\n` : '';
+}
 async function installHooksInConfigToml(configTomlPath, commands) {
     await mkdir(dirname(configTomlPath), { recursive: true });
     const current = await loadText(configTomlPath);
@@ -180,6 +204,13 @@ async function uninstallHooksFromConfigToml(configTomlPath) {
         return 2;
     }
     return 0;
+}
+async function cleanupDeprecatedCodexHooksFeatureFlag(configTomlPath) {
+    const current = await loadText(configTomlPath);
+    const next = removeDeprecatedCodexHooksFeatureFlagFromConfigTomlText(current);
+    if (next !== current) {
+        await writeFile(configTomlPath, next, 'utf8');
+    }
 }
 function hasCommandInConfigToml(text, command) {
     return text.includes(`command = ${tomlString(command)}`)
@@ -293,26 +324,74 @@ function countRemainingCommands(hooks) {
     }
     return count;
 }
-export async function codexHooksFeatureAvailable() {
+function parseFeatureList(stdout) {
+    const features = new Map();
+    for (const line of stdout.split('\n')) {
+        const parts = line.trim().split(/\s+/);
+        if (parts.length < 2)
+            continue;
+        const enabled = parts.at(-1);
+        if (enabled === 'true' || enabled === 'false') {
+            features.set(parts[0], enabled === 'true');
+        }
+    }
+    return features;
+}
+async function loadCodexFeatures() {
     const listed = await runCodex(['features', 'list']);
     if (listed.code !== 0)
         return null;
-    return listed.stdout
-        .split('\n')
-        .map(part => part.trim())
-        .some(part => part.startsWith('codex_hooks '));
+    return parseFeatureList(listed.stdout);
+}
+function resolveHooksFeatureName(features) {
+    if (features.has(HOOKS_FEATURE))
+        return HOOKS_FEATURE;
+    if (features.has(LEGACY_HOOKS_FEATURE))
+        return LEGACY_HOOKS_FEATURE;
+    return null;
+}
+export async function codexHooksFeatureAvailable() {
+    const features = await loadCodexFeatures();
+    if (!features)
+        return null;
+    return resolveHooksFeatureName(features) !== null;
 }
 export async function codexHooksFeatureEnabled() {
-    const listed = await runCodex(['features', 'list']);
-    if (listed.code !== 0)
+    const features = await loadCodexFeatures();
+    if (!features)
         return null;
-    const line = listed.stdout
-        .split('\n')
-        .map(part => part.trim())
-        .find(part => part.startsWith('codex_hooks '));
-    if (!line)
-        return null;
-    return /\btrue$/.test(line);
+    const feature = resolveHooksFeatureName(features);
+    if (feature)
+        return features.get(feature);
+    return null;
+}
+async function enableHooksFeature() {
+    const features = await loadCodexFeatures();
+    const feature = features ? resolveHooksFeatureName(features) : HOOKS_FEATURE;
+    if (!feature) {
+        return {
+            result: { code: 1, stdout: '', stderr: 'Codex hooks feature is not available in this Codex build.' },
+            feature: HOOKS_FEATURE,
+        };
+    }
+    return {
+        result: await runCodex(['features', 'enable', feature]),
+        feature,
+    };
+}
+async function disableHooksFeature() {
+    const features = await loadCodexFeatures();
+    const feature = features ? resolveHooksFeatureName(features) : HOOKS_FEATURE;
+    if (!feature) {
+        return {
+            result: { code: 1, stdout: '', stderr: 'Codex hooks feature is not available in this Codex build.' },
+            feature: HOOKS_FEATURE,
+        };
+    }
+    return {
+        result: await runCodex(['features', 'disable', feature]),
+        feature,
+    };
 }
 function quotePath(path) {
     return `"${path.replace(/"/g, '\\"')}"`;
@@ -367,19 +446,22 @@ export async function codexHooksInstall(options = {}) {
     const commands = await resolveHookCommands();
     let enabled;
     try {
-        enabled = await runCodex(['features', 'enable', 'codex_hooks']);
+        enabled = await enableHooksFeature();
     }
     catch (err) {
         printCodexMissingHelp(err);
         process.exitCode = 1;
         return;
     }
-    if (enabled.code !== 0) {
-        console.error(`Failed to enable Codex hooks feature (exit ${enabled.code ?? 'unknown'}).`);
-        if (enabled.stderr.trim())
-            console.error(enabled.stderr.trim());
+    if (enabled.result.code !== 0) {
+        console.error(`Failed to enable Codex hooks feature (exit ${enabled.result.code ?? 'unknown'}).`);
+        if (enabled.result.stderr.trim())
+            console.error(enabled.result.stderr.trim());
         process.exitCode = 1;
         return;
+    }
+    if (enabled.feature === HOOKS_FEATURE) {
+        await cleanupDeprecatedCodexHooksFeatureFlag(resolveCodexConfigTomlPath());
     }
     if (preferredScope === 'global') {
         const configTomlPath = resolveCodexConfigTomlPath();
@@ -467,19 +549,22 @@ export async function codexHooksUninstall(options = {}) {
     }
     let disabled;
     try {
-        disabled = await runCodex(['features', 'disable', 'codex_hooks']);
+        disabled = await disableHooksFeature();
     }
     catch (err) {
         printCodexMissingHelp(err);
         process.exitCode = 1;
         return;
     }
-    if (disabled.code !== 0) {
-        console.error(`Failed to disable Codex hooks feature (exit ${disabled.code ?? 'unknown'}).`);
-        if (disabled.stderr.trim())
-            console.error(disabled.stderr.trim());
+    if (disabled.result.code !== 0) {
+        console.error(`Failed to disable Codex hooks feature (exit ${disabled.result.code ?? 'unknown'}).`);
+        if (disabled.result.stderr.trim())
+            console.error(disabled.result.stderr.trim());
         process.exitCode = 1;
         return;
+    }
+    if (disabled.feature === HOOKS_FEATURE) {
+        await cleanupDeprecatedCodexHooksFeatureFlag(resolveCodexConfigTomlPath());
     }
     console.log('Codex hooks feature disabled (no hook commands remain).');
 }

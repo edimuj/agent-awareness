@@ -1,10 +1,5 @@
 import { run } from '../providers/codex/adapter.ts';
 
-if (!process.stdin.isTTY) {
-  process.stdin.resume();
-  process.stdin.on('data', () => {});
-}
-
 function formatForHookContext(text: string): string {
   return text
     .split(/\r?\n+/)

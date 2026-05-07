@@ -226,7 +226,8 @@ test('codex setup writes global hook commands to config.toml and removes legacy 
 
   const features = await runCommand('codex', ['features', 'list'], env);
   assert.equal(features.code, 0, features.stderr || features.stdout);
-  assert.match(features.stdout, /^codex_hooks\s+.+\s+true$/m);
+  assert.match(features.stdout, /^hooks\s+.+\s+true$/m);
+  assert.doesNotMatch(configToml, /codex_hooks/);
 });
 
 test('codex plugin install enables the bundle but does not create hooks config', { timeout: 30_000 }, async t => {

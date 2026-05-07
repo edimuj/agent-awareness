@@ -28,6 +28,8 @@ This writes hook commands into your Codex config. Run it once, then use Codex in
 
 Why `npm install -g` and not `npx`? The setup writes stable on-disk hook paths into Codex config. They need to point at a real install.
 
+Current Codex builds require reviewing new or changed hook commands before they run. If Codex prints `hooks need review`, open `/hooks` in Codex and approve the agent-awareness entries.
+
 Then install awareness plugins globally:
 
 ```bash

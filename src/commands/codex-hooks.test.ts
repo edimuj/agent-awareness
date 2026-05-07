@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { removeAgentAwarenessHooksFromConfigTomlText, resolveCodexHome, resolveHooksJsonPath } from './codex-hooks.ts';
+import {
+  removeAgentAwarenessHooksFromConfigTomlText,
+  removeDeprecatedCodexHooksFeatureFlagFromConfigTomlText,
+  resolveCodexHome,
+  resolveHooksJsonPath,
+} from './codex-hooks.ts';
 
 test('resolveCodexHome prefers CODEX_HOME when set', () => {
   const resolved = resolveCodexHome({ CODEX_HOME: '/tmp/custom-codex-home' }, '/home/example');
@@ -56,4 +61,30 @@ test('removeAgentAwarenessHooksFromConfigTomlText removes partial managed hook t
   assert.doesNotMatch(output, /agent-awareness hooks/);
   assert.match(output, /agent-relay\/codex\/hooks\/session-start\.ts/);
   assert.match(output, /\[\[hooks\.SessionStart\.hooks\]\]/);
+});
+
+test('removeDeprecatedCodexHooksFeatureFlagFromConfigTomlText removes only legacy hooks feature flags', () => {
+  const input = [
+    'features.codex_hooks = true',
+    '',
+    '[features]',
+    'multi_agent = true',
+    'codex_hooks = false',
+    'hooks = true',
+    '',
+    '[projects."/work/repo"]',
+    'trust_level = "trusted"',
+    '',
+    '[[hooks.UserPromptSubmit]]',
+    '[[hooks.UserPromptSubmit.hooks]]',
+    'type = "command"',
+    'command = "node /hook.mjs"',
+  ].join('\n');
+
+  const output = removeDeprecatedCodexHooksFeatureFlagFromConfigTomlText(input);
+
+  assert.doesNotMatch(output, /codex_hooks/);
+  assert.match(output, /\[features\]\nmulti_agent = true\nhooks = true/);
+  assert.match(output, /\[\[hooks\.UserPromptSubmit\.hooks\]\]/);
+  assert.match(output, /\[projects\."\/work\/repo"\]/);
 });

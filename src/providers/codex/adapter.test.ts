@@ -44,6 +44,41 @@ async function runNode(
   return { code, stdout, stderr };
 }
 
+async function runNodeWithOpenStdin(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs = 1000,
+): Promise<{ exited: boolean; code: number | null; stdout: string; stderr: string }> {
+  const child = spawn('node', args, {
+    cwd: process.cwd(),
+    env,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', chunk => { stdout += chunk.toString(); });
+  child.stderr.on('data', chunk => { stderr += chunk.toString(); });
+
+  const closed = new Promise<number | null>(resolve => {
+    child.on('close', resolve);
+  });
+
+  const timedOut = Symbol('timedOut');
+  const result = await Promise.race([
+    closed,
+    new Promise<typeof timedOut>(resolve => setTimeout(() => resolve(timedOut), timeoutMs)),
+  ]);
+
+  if (result === timedOut) {
+    child.kill();
+    await closed;
+    return { exited: false, code: null, stdout, stderr };
+  }
+
+  return { exited: true, code: result, stdout, stderr };
+}
+
 test('codex hook isolates plugin failures instead of crashing', async () => {
   const tempHome = await mkdtemp(join(tmpdir(), 'agent-awareness-home-'));
   const pluginsDir = join(tempHome, '.config', 'agent-awareness', 'plugins');
@@ -165,6 +200,21 @@ test('codex prompt-submit emits valid JSON hook output shape', async () => {
   assert.deepEqual(payload.hookSpecificOutput?.hookEventName, 'UserPromptSubmit');
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /prompt:enabled/);
   assert.match(String(payload.hookSpecificOutput?.additionalContext ?? ''), /\|\|/);
+});
+
+test('codex prompt-submit exits even when Codex keeps stdin open', async () => {
+  const tempHome = await mkdtemp(join(tmpdir(), 'agent-awareness-home-'));
+  const configsDir = join(tempHome, '.config', 'agent-awareness', 'plugins.d');
+
+  await mkdir(configsDir, { recursive: true });
+
+  for (const name of DISABLED_PLUGIN_NAMES) {
+    await writeFile(join(configsDir, `${name}.json`), '{ "enabled": false }\n');
+  }
+
+  const prompt = await runNodeWithOpenStdin(CODEX_PROMPT_HOOK, { ...process.env, HOME: tempHome });
+  assert.equal(prompt.exited, true);
+  assert.equal(prompt.code, 0);
 });
 
 test('codex prompt-submit fires interval plugins inline and respects persisted state', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "agent-awareness",
-  "version": "0.8.8",
+  "version": "0.8.9",
   "description": "Modular awareness plugins for AI coding agents",
   "type": "module",
   "bin": {
